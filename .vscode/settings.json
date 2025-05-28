@@ -1,0 +1,13 @@
+{
+    "files.associations": {
+        "task_manager.h": "c",
+        "sys_params.h": "c",
+        "worker.h": "c",
+        "so_compression.h": "c",
+        "stdint.h": "c",
+        "errno.h": "c",
+        "file_utils.h": "c",
+        "stat.h": "c",
+        "trames.h": "c"
+    }
+}

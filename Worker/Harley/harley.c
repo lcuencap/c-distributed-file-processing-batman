@@ -1,0 +1,428 @@
+#include "../worker.h"
+#include "../../Utils/task_manager.h"
+#include "../../Utils/so_compression.h"
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/mman.h>
+#include <pthread.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <pthread.h>
+
+#define THREAD_POOL_SIZE 4
+
+// Variables globals
+static TaskManager task_manager;
+static ConfigWorker config;
+static int shared_mem_fd = -1;
+static void *shared_mem = NULL;
+static size_t current_mem_size = SHARED_MEM_SIZE;
+pthread_mutex_t shared_mem_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_rwlock_t shared_mem_rwlock = PTHREAD_RWLOCK_INITIALIZER;  
+int active_threads = 0;
+pthread_mutex_t threads_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+int connection_queue[MAX_QUEUE_SIZE];
+int queue_front = 0, queue_rear = 0, queue_count = 0;
+
+pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
+pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
+
+
+int verificar_checksum(const char *file_name, const char *received_checksum) {
+    char calculated_checksum[MD5SUM_LENGTH];
+    uint32_t file_size;
+
+    if (calcular_md5(file_name, calculated_checksum, &file_size) < 0) {
+        write(STDERR_FILENO, "Error calculant MD5SUM\n", 23);
+        return -1;
+    }
+
+    return strncmp(calculated_checksum, received_checksum, MD5SUM_LENGTH) == 0 ? 0 : -1;
+}
+
+
+/**
+ * @brief Processar la compressió de media.
+ */
+int processar_media(const char *file_name, int factor) {
+    char mutable_file_name[256];
+    strncpy(mutable_file_name, file_name, sizeof(mutable_file_name));
+  
+    if (strstr(file_name, ".wav")) {
+        int result = SO_compressAudio(mutable_file_name, factor);
+        return result;
+    } else if (strstr(file_name, ".jpg") || strstr(file_name, ".png")) {  
+        int result = SO_compressImage(mutable_file_name, factor);
+        return result;    
+    } else if (strstr(file_name, ".mp3")) {
+        write(STDERR_FILENO, "Error: .mp3 no suportat. Només .wav.\n", 38);
+        return ERROR_NOT_WAV;
+    } else {
+        write(STDERR_FILENO, "Error: Tipus de fitxer no compatible.\n", 38);
+        return ERROR_UNSUPPORTED_FORMAT;
+    }
+}
+
+
+
+
+/**
+ * @brief Envia un heartbeat a Gotham per indicar que el worker segueix actiu.
+ * @param signo Senyal que ha activat la funció (no utilitzat).
+ */
+void enviar_heartbeat(int signo) {
+    (void)signo;  // Evitar warnings per paràmetre no utilitzat
+
+    Trama heartbeat_trama;
+    inicialitzar_trama(&heartbeat_trama, 0x12, "Heartbeat");
+
+    if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
+        write(STDERR_FILENO, "Error enviant heartbeat a Gotham. Intentant reconnectar...\n", 60);
+
+        if (reconnectar_gotham(&config) == 0) {
+            write(STDOUT_FILENO, "Reconnexió exitosa. Enviant heartbeat...\n", 43);
+            write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
+        } else {
+            write(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n", 36);
+        }
+    } 
+
+    alarm(10);
+}
+
+
+
+void *handle_task(void *arg) {
+    int client_socket = *(int *)arg;
+    free(arg);
+
+    pthread_mutex_lock(&threads_mutex);
+    active_threads++;
+    pthread_mutex_unlock(&threads_mutex);
+
+
+    Trama request_trama;
+    if (safe_read(client_socket, &request_trama, sizeof(Trama)) < 0) {
+        write(STDERR_FILENO, "Error: No es pot llegir la trama completa de 256 bytes\n", 55);
+        goto error_con_ko;
+    }
+
+    if (request_trama.data_length > sizeof(request_trama.data)) {
+        write(STDERR_FILENO, "Data_length massa gran, descartant trama\n", 42);
+        goto error_con_ko;
+    }
+
+    if (request_trama.type != 0x03) {
+        write(STDERR_FILENO, "Trama rebutjada per tipus incorrecte\n", 37);
+        goto error_con_ko;
+    }
+
+    // --------------------------- PROCESSAMENT NORMAL ---------------------------
+    char file_name[256] = {0};
+    char file_size_str[12] = {0};
+    char received_checksum[MD5SUM_LENGTH] = {0};
+
+    char *first_sep = strchr(request_trama.data, '&');
+    if (!first_sep) goto error_con_ko;
+
+    size_t name_len = first_sep - request_trama.data;
+    if (name_len >= sizeof(file_name)) name_len = sizeof(file_name) - 1;
+    memcpy(file_name, request_trama.data, name_len);
+    file_name[name_len] = '\0';
+
+    char *second_sep = strchr(first_sep + 1, '&');
+    if (!second_sep) goto error_con_ko;
+
+    size_t size_len = second_sep - (first_sep + 1);
+    if (size_len >= sizeof(file_size_str)) size_len = sizeof(file_size_str) - 1;
+    memcpy(file_size_str, first_sep + 1, size_len);
+    file_size_str[size_len] = '\0';
+
+    uint32_t file_size = strtoul(file_size_str, NULL, 10);
+
+    char *third_sep = strchr(second_sep + 1, '&');
+    if (!third_sep) goto error_con_ko;
+
+    size_t checksum_len = third_sep - (second_sep + 1);
+    if (checksum_len >= MD5SUM_LENGTH) checksum_len = MD5SUM_LENGTH - 1;
+    memcpy(received_checksum, second_sep + 1, checksum_len);
+    received_checksum[checksum_len] = '\0';
+
+    int factor = atoi(third_sep + 1);
+
+    // Enviar CON_OK a Fleck
+    Trama resposta_con_ok;
+    inicialitzar_trama(&resposta_con_ok, 0x03, "");
+    if (write(client_socket, &resposta_con_ok, sizeof(resposta_con_ok)) != sizeof(resposta_con_ok)) {
+        goto error_con_ko;
+}
+
+    // Buscar/crear metadata
+    TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
+
+    if (!metadata) {
+        write(STDOUT_FILENO, "Creant nova tasca per al fitxer\n", 33);
+
+        pthread_mutex_lock(&shared_mem_mutex);
+        metadata = (TaskMetadata *)((char *)shared_mem + current_mem_size);
+        strncpy(metadata->file_name, file_name, sizeof(metadata->file_name));
+        metadata->total_size = file_size;
+        metadata->processed_offset = 0;
+        metadata->bytes_sent = 0;
+        metadata->status = TASK_RECEIVING;
+        strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
+        pthread_mutex_unlock(&shared_mem_mutex);
+        add_task_to_manager(&task_manager, client_socket, file_name, &config);
+    } else {
+        write(STDOUT_FILENO, "Reprenent tasca existent\n", 26);
+    }
+
+    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
+        write(STDERR_FILENO, "Error rebent el fitxer\n", 23);
+        goto error_con_ko;
+    }
+
+
+    if (processar_media(file_name, factor) != NO_ERROR) {
+        write(STDERR_FILENO, "Error processant el fitxer\n", 27);
+        goto error_con_ko;
+    }
+    
+    // Recalcular la mida real del fitxer processat
+    int fd = open(file_name, O_RDONLY);
+    if (fd < 0) {
+        goto error_con_ko;
+    }
+    uint32_t distorted_file_size;
+    off_t size = lseek(fd, 0, SEEK_END);
+    if (size == (off_t)-1) {
+        close(fd);
+        goto error_con_ko;
+    }
+    distorted_file_size = (uint32_t)size;
+
+    pthread_mutex_lock(&shared_mem_mutex);
+    metadata->total_size = distorted_file_size;
+    pthread_mutex_unlock(&shared_mem_mutex);
+
+
+    if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
+        write(STDERR_FILENO, "Error enviant el fitxer processat\n", 34);
+        marcar_tasca_com_fallida(metadata, &config);
+        goto error_con_ko;
+    }
+
+    remove_task(&task_manager, client_socket, &task_manager.mutex);
+
+    close(client_socket);
+
+    pthread_mutex_lock(&threads_mutex);
+    active_threads--;
+    pthread_mutex_unlock(&threads_mutex);
+
+    
+    return NULL;
+
+error_con_ko:
+    {
+        Trama resposta_con_ko;
+        inicialitzar_trama(&resposta_con_ko, 0x03, "CON_KO");
+        write(client_socket, &resposta_con_ko, sizeof(resposta_con_ko));
+
+        close(client_socket);
+        return NULL;
+    }
+}
+
+void *worker_loop(void *arg) {
+    (void) arg;  // Evitar warnings per paràmetre no utilitzat
+    while (1) {
+        int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
+            &queue_mutex, &queue_not_empty, &queue_not_full);
+        int *socket_ptr = malloc(sizeof(int));
+        *socket_ptr = client_socket;
+        handle_task(socket_ptr);
+    }
+    return NULL;
+}
+
+
+
+/**
+ * @brief Escoltar connexions entrants i gestionar la possible desconnexió de Fleck.
+ */
+void listener_harley_principal(ConfigWorker *config) {
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        exit(EXIT_FAILURE);
+    }
+
+    struct sockaddr_in address = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = inet_addr(config->ip_fleck),
+        .sin_port = htons(config->port_fleck),
+    };
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        close(server_fd);
+        exit(EXIT_FAILURE);
+    }
+    
+
+
+    if (listen(server_fd, 10) < 0) {
+        close(server_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    write(STDOUT_FILENO, "Worker principal esperant connexions de Fleck...\n", 48);
+
+    while (1) {
+        int client_socket = accept(server_fd, NULL, NULL);
+        if (client_socket < 0) continue;
+        
+        
+
+        // Comprovar si Fleck s'ha desconnectat abans de començar la tasca
+        /*if (detectar_desconnexio_fleck(client_socket)) {
+            gestionar_desconnexio_fleck("Tasca desconeguda", client_socket, config->base.socket_fd);
+            continue;
+        }
+
+        pthread_t thread_id;
+        int *client_socket_ptr = malloc(sizeof(int));
+        if (!client_socket_ptr) {
+            close(client_socket);
+            continue;
+        }
+        *client_socket_ptr = client_socket;
+
+        printf("[HARLEY] Creant nou thread per connexió entrant\n");
+        int ret = pthread_create(&thread_id, NULL, handle_task, client_socket_ptr);
+        if (ret != 0) {
+            perror("[HARLEY] Error creant thread");
+            free(client_socket_ptr);
+            close(client_socket);
+        } else {
+            pthread_detach(thread_id);
+            printf("[HARLEY] Thread creat i desvinculat\n");
+        }
+        */
+
+        enqueue_connection(client_socket, connection_queue, &queue_rear, &queue_count,
+            &queue_mutex, &queue_not_empty, &queue_not_full);
+    }
+
+    close(server_fd);
+}
+
+
+void *gotham_listener_thread(void *arg) {
+    ConfigWorker *config = (ConfigWorker *)arg;
+
+    while (1) {
+        Trama trama;
+        if (config->base.socket_fd <= 0) {
+            write(STDERR_FILENO, "Socket no válido, intentando reconectar...\n", 45);
+            reconnectar_gotham(config);
+            continue;
+        }
+
+        ssize_t bytes_read = read(config->base.socket_fd, &trama, sizeof(trama));
+        if (bytes_read != sizeof(trama)) {
+            write(STDERR_FILENO, "Error rebent missatge de Gotham, intentant reconectar...\n", 56);
+            reconnectar_gotham(config);
+            continue;
+        }
+
+
+
+        switch (trama.type) {
+            case 0x02:
+                write(STDOUT_FILENO, "Connexió confirmada amb Gotham\n", 32);
+                break;
+            case 0x08:
+                config->is_primary_worker = 1;
+                listener_harley_principal(config);
+                break;
+            case 0x09:
+                write(STDERR_FILENO, "Gotham ha notificat un error.\n", 30);
+                break;
+            case 0x12:
+                write(STDOUT_FILENO, "Gotham ha demanat un heartbeat. Responent...\n", 45);
+                enviar_heartbeat(0);
+                break;
+            default:
+                write(STDERR_FILENO, "Trama desconeguda de Gotham\n", 29);
+                // Enviar trama de error (0x09) de respuesta
+                Trama error_trama;
+                error_trama.type = 0x09;
+                error_trama.data_length = 0; // Sin datos
+                memset(error_trama.data, 0, sizeof(error_trama.data)); // Vaciar data
+
+                if (write(config->base.socket_fd, &error_trama, sizeof(error_trama)) != sizeof(error_trama)) {
+                    write(STDERR_FILENO, "Error enviant trama de resposta d'error a Gotham\n", 49);
+                }
+
+                break;
+        }
+    }
+
+    return NULL;
+}
+
+void gestionar_signal_interrupt(int sig) {
+    gestionar_signal_interrupt_worker(sig, &task_manager, &config, 
+                               shared_mem, &shared_mem_fd, "/harley_shared_mem",
+                               &task_manager.mutex, current_mem_size, &shared_mem_mutex);
+}
+
+/**
+ * @brief Punt d'entrada principal.
+ */
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        write(STDOUT_FILENO, "Us: ./harley <fitxer_configuracio>\n", 36);
+        return 1;
+    }
+
+    int config_fd = open(argv[1], O_RDONLY);
+    if (config_fd < 0 || parse_worker_config(config_fd, &config) < 0) return 1;
+    close(config_fd);
+
+    assegurar_working_directory(config.work_dir, 1);
+
+    char full_workdir[512];
+    snprintf(full_workdir, sizeof(full_workdir), "Worker/Harley/%s", config.work_dir);
+
+    config.work_dir = strdup(full_workdir);
+
+    // Canviar el directori actual del procés a aquest path
+    if (chdir(config.work_dir) != 0) {
+        return 1;
+    }
+
+
+    inicialitzar_memoria_compartida("/harley_shared_mem", &shared_mem_fd, &shared_mem, 
+                                    current_mem_size, &shared_mem_mutex);    
+
+    inicialitzar_connexio_gotham(&config);
+    signal(SIGINT, (void (*)(int))gestionar_signal_interrupt);
+    pthread_t thread_pool[THREAD_POOL_SIZE];
+    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
+        pthread_create(&thread_pool[i], NULL, worker_loop, NULL);
+    }
+
+
+    pthread_t gotham_thread;
+    pthread_create(&gotham_thread, NULL, gotham_listener_thread, &config);
+    configurar_heartbeats(enviar_heartbeat);
+
+    pthread_join(gotham_thread, NULL);
+
+    return 0;
+}

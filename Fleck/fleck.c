@@ -514,19 +514,31 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
 int rebre_fitxer_worker(const char *output_file, const char *media_type, const char *file_name) {
     Trama trama;
     time_t last_print = time(NULL);
+    // Desactivar timeout per esperar indefinidament la trama 0x04
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
+    setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
 
 
     // 1. Rebre trama 0x04 amb FileSize & MD5SUM
     while (1) {
         ssize_t bytes_read = safe_read(worker_fd, &trama, sizeof(trama));
+        write(STDOUT_FILENO, "[DEBUG] Llegit del socket...\n", 30);
+
         
-        if (bytes_read == sizeof(trama)){ break;}  // Correcte, ja tenim la trama 0x04.
+        if (bytes_read == sizeof(trama)){ 
+            write(STDOUT_FILENO, "[FLECK] Rebut trama 0x04 del Worker\n", 36);
+            break;
+        }  // Correcte, ja tenim la trama 0x04.
         
 
         if (bytes_read < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             time_t now = time(NULL);
             if (now - last_print >= 10) {
                 last_print = now;
+                write(STDOUT_FILENO, "[DEBUG] Encara esperant trama 0x04 del worker...\n", 50);
             }
             continue;  // Tornar a esperar.
         }
@@ -588,6 +600,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
     // 3. Rebre trames 0x05 fins completar file_size
     while (total_rebut < file_size) {
         ssize_t bytes_read = safe_read(worker_fd, &trama, sizeof(trama));
+        write(STDOUT_FILENO, "[DEBUG] Esperant nova trama 0x05...\n", 36);
         if (bytes_read != sizeof(trama)) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
@@ -629,7 +642,9 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         int percent = (int)((total_rebut * 100) / file_size);
         update_progress(file_name, percent);
 
+
     }
+    write(STDOUT_FILENO, "[DEBUG] Fitxer rebut completament\n", 34);
 
     close(output_fd);
 
@@ -707,6 +722,8 @@ int gestionar_distorsio_worker(const char *worker_ip, int worker_port, const cha
     enviar_trama_desconnexio_worker();  
     return 0;
 }
+
+
 void *thread_distorsio_worker(void *arg) {
     DistorsioArgs *args = (DistorsioArgs *)arg;
 

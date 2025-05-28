@@ -53,7 +53,8 @@ void *handle_worker(void *arg) {
             char *workerPortStr = strtok(NULL, "&");
 
             if (!workerType || !workerIP || !workerPortStr) {
-                printf("Trama de worker mal formada.\n");
+                const char *msg = "Trama de worker mal formada.\n";
+                write(STDOUT_FILENO, msg, strlen(msg));
                 close(worker_socket);
                 continue;
             }
@@ -89,29 +90,42 @@ void *handle_worker(void *arg) {
             workers[num_workers] = worker;
             num_workers++;
             pthread_mutex_unlock(&worker_mutex);
-            printf("Worker registrat com a tipus: %s\n", worker.base.type == ENIGMA ? "ENIGMA" : "HARLEY");
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Worker registrat com a tipus: %s\n", worker.base.type == ENIGMA ? "ENIGMA" : "HARLEY");
+            write(STDOUT_FILENO, buf, strlen(buf));
 
 
             // Envia CON_OK
             Trama resposta;
             inicialitzar_trama(&resposta, 0x02, "");
             write(worker_socket, &resposta, sizeof(resposta));
-            printf("Worker registrat: %s:%d (type: %s)\n", workerIP, worker.port_fleck, workerType);
+            char buf[128];
+            snprintf(buf, sizeof(buf), "Worker registrat: %s:%d (type: %s)\n", workerIP, worker.port_fleck, workerType);
+            write(STDOUT_FILENO, buf, strlen(buf));
 
             // Envia 0x08 si és principal
             if (worker.is_primary_worker) {
                 Trama promotora;
                 inicialitzar_trama(&promotora, 0x08, "");
                 write(worker_socket, &promotora, sizeof(promotora));
-                printf("Trama 0x08 enviada al worker per promoure'l a principal\n");
+                const char *msg = "Trama 0x08 enviada al worker per promoure'l a principal\n";
+                write(STDOUT_FILENO, msg, strlen(msg));
             }
         } else if (trama.type == 0x07) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Worker %s desconnectat\n", trama.data);
+            write(STDOUT_FILENO, buf, strlen(buf));
             printf("Worker %s desconnectat\n", trama.data);
-            printf("Desconnectant worker %d\n", trama.type);
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Desconnectant worker %d\n", trama.type);
+            write(STDOUT_FILENO, buf, strlen(buf));
+
             // Eliminar worker del tipus corresponent
             // Si era principal → assignar nou principal i enviar 0x08 al nou
         } else if (trama.type == 0x12) {
-            printf("Worker %s ha enviat un heartbeat\n", trama.data);
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Worker %s ha enviat un heartbeat\n", trama.data);
+            write(STDOUT_FILENO, buf, strlen(buf));
             // Actualitzar timestamp de l'últim heartbeat
             pthread_mutex_lock(&worker_mutex);
             for (int i = 0; i < num_workers; i++) {
@@ -122,7 +136,9 @@ void *handle_worker(void *arg) {
             }
             pthread_mutex_unlock(&worker_mutex);
         } else{
-            printf("Trama desconeguda rebuda del worker: 0x%02X\n", trama.type);
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Trama desconeguda rebuda del worker: 0x%02X\n", trama.type);
+            write(STDOUT_FILENO, buf, strlen(buf));
             // Trama desconeguda → enviar 0x09
         }
     }
@@ -177,7 +193,17 @@ void *gestionar_client_fleck(void *arg) {
             Trama resposta;
             inicialitzar_trama(&resposta, 0x01, "");
             write(client_socket, &resposta, sizeof(resposta));
-            write(STDOUT_FILENO, "Arthur connected to Mr. J System. Let the chaos begin!:)\n", 58);
+
+            // Extreure el nom del Fleck
+            char *username = strtok(trama.data, "&");
+
+            char msg[128];
+            if (username) {
+                snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)\n", username);
+            } else {
+                snprintf(msg, sizeof(msg), "Unknown user connected to Mr. J System. Let the chaos begin!:)\n");
+            }
+            write(STDOUT_FILENO, msg, strlen(msg));
         } else if (trama.type == 0x10) {
 
             char *mediaType = strtok(trama.data, "&");

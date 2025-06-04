@@ -26,7 +26,7 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
 
     // Ampliar el tamaño del archivo de memoria compartida
     if (ftruncate(shared_mem_fd, nueva_mem_size) < 0) {
-        write(STDERR_FILENO, "Error ampliant mida de la memòria compartida\n", 46);
+        write_message(STDERR_FILENO, "Error ampliant mida de la memòria compartida\n");
         pthread_mutex_unlock(shared_mem_mutex);
         return -1;
     }
@@ -34,7 +34,7 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     // Crear nueva región de memoria con el tamaño expandido
     void *new_mem = mmap(NULL, nueva_mem_size, PROT_READ | PROT_WRITE, MAP_SHARED, shared_mem_fd, 0);
     if (new_mem == MAP_FAILED) {
-        write(STDERR_FILENO, "Error mapant nova memòria compartida\n", 38);
+        write_message(STDERR_FILENO, "Error mapant nova memòria compartida\n");
         pthread_mutex_unlock(shared_mem_mutex);
         return -1;
     }
@@ -72,8 +72,7 @@ void configurar_timeout(int socket_fd, int timeout_seconds) {
  */
 void gestionar_desconnexio_gotham(int socket_fd, const char *workerType) {
     if (socket_fd < 0 || !workerType) {
-        const char *msg = "Error: Paràmetres invàlids a gestionar_desconnexio_gotham\n";
-        write(STDOUT_FILENO, msg, strlen(msg));
+        write_message(STDOUT_FILENO, "Error: Paràmetres invàlids a gestionar_desconnexio_gotham\n");
         return;
     }
 
@@ -100,7 +99,7 @@ int inicialitzar_connexio_gotham(ConfigWorker *config) {
 
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd < 0) {
-        write(STDERR_FILENO, "Error creant el socket\n", 23);
+        write_message(STDERR_FILENO, "Error creant el socket\n");
         return -1;
     }
 
@@ -110,34 +109,34 @@ int inicialitzar_connexio_gotham(ConfigWorker *config) {
     inet_pton(AF_INET, config->base.ip, &gotham_addr.sin_addr);
 
     if (connect(socket_fd, (struct sockaddr *)&gotham_addr, sizeof(gotham_addr)) < 0) {
-        write(STDERR_FILENO, "Error connectant a Gotham\n", 27);
+        write_message(STDERR_FILENO, "Error connectant a Gotham\n");
         close(socket_fd);
         return -1;
     }
 
     if (write(socket_fd, &trama, sizeof(trama)) != sizeof(trama)) {
-        write(STDERR_FILENO, "Error enviant la trama a Gotham\n", 32);
+        write_message(STDERR_FILENO, "Error enviant la trama a Gotham\n");
         close(socket_fd);
         return -1;
     }
 
     Trama resposta;
     if (read(socket_fd, &resposta, sizeof(resposta)) != sizeof(resposta)) {
-        write(STDOUT_FILENO, "Error rebent resposta de Gotham\n", 33);
+        write_message(STDOUT_FILENO, "Error rebent resposta de Gotham\n");
         close(socket_fd);
         return -1;
     }
 
     if (resposta.type == 0x02 && resposta.data_length == 0) {
-        write(STDOUT_FILENO, "Connexió establerta amb Gotham\n", 32);
+        write_message(STDOUT_FILENO, "Connexió establerta amb Gotham\n");
     } else {
-        write(STDOUT_FILENO, "Connexió rebutjada per Gotham\n", 31);
+        write_message(STDOUT_FILENO, "Connexió rebutjada per Gotham\n");
         close(socket_fd);
         return -1;
     }
 
     config->base.socket_fd = socket_fd;  
-    return 0;  // ✅ Ara retorna un valor correcte
+    return 0;  
 }
 
 /**
@@ -159,7 +158,7 @@ int validar_checksum(Trama *trama) {
 void gestionar_desconnexio_fleck(const char *file_name, int client_socket, int gotham_socket) {
     char log_msg[256];
     snprintf(log_msg, sizeof(log_msg), "Fleck desconnectat inesperadament mentre es processava: %s\n", file_name);
-    write(STDERR_FILENO, log_msg, strlen(log_msg));
+    write_message(STDERR_FILENO, log_msg);
 
     // Notificar a Gotham sobre la desconnexió
     Trama trama;
@@ -311,15 +310,13 @@ int detectar_desconnexio_fleck(int client_socket) {
 
 void parse_trama_data(const char *data, uint32_t *file_size, char *checksum) {
     if (!data || !file_size || !checksum) {
-        const char *err_msg = "Error: Paràmetres invàlids a parse_trama_data\n";
-        write(STDERR_FILENO, err_msg, strlen(err_msg));
+        write_message(STDERR_FILENO, "Error: Paràmetres invàlids a parse_trama_data\n");
         return;
     }
 
     const char *separator = strchr(data, '&');
     if (!separator) {
-        const char *err_msg = "Error: Format de dades de trama invàlid\n";
-        write(STDERR_FILENO, err_msg, strlen(err_msg));
+        write_message(STDERR_FILENO, "Error: Format de dades de trama invàlid\n");
         return;
     }
 
@@ -565,7 +562,7 @@ void assegurar_working_directory(char *work_dir, int harley) {
     size_t path_len = strlen("Worker/") + strlen(harley ? "Harley" : "Enigma") + strlen(work_dir) + 1;
     char *full_path = malloc(path_len);
     if (!full_path) {
-        write(STDERR_FILENO, "Error: No es pot reservar memòria per al path\n", 46);
+        write_message(STDERR_FILENO, "Error: No es pot reservar memòria per al path\n");
         return;
     }
     snprintf(full_path, path_len, "Worker/%s%s", harley ? "Harley" : "Enigma", work_dir);
@@ -576,10 +573,10 @@ void assegurar_working_directory(char *work_dir, int harley) {
             size_t msg_len = strlen("[WARN] Directori inexistent: ") + strlen(full_path) + 2;
             char *msg = malloc(msg_len);
             if (!msg) {
-                write(STDERR_FILENO, "Error: No es pot reservar memòria per al missatge\n", 50);
+                write_message(STDERR_FILENO, "Error: No es pot reservar memòria per al missatge\n");
             } else {
                 snprintf(msg, msg_len, "[WARN] Directori inexistent: %s\n", full_path);
-                write(STDOUT_FILENO, msg, strlen(msg));
+                write_message(STDOUT_FILENO, msg);
                 free(msg);
             }
         } 
@@ -587,10 +584,10 @@ void assegurar_working_directory(char *work_dir, int harley) {
         size_t msg_len = strlen("[INFO] Directori trobat: ") + strlen(full_path) + 2;
         char *msg = malloc(msg_len);
         if (!msg) {
-            write(STDERR_FILENO, "Error: No es pot reservar memòria per al missatge\n", 50);
+            write_message(STDERR_FILENO, "Error: No es pot reservar memòria per al missatge\n");
         } else {
             snprintf(msg, msg_len, "[INFO] Directori trobat: %s\n", full_path);
-            write(STDOUT_FILENO, msg, strlen(msg));
+            write_message(STDOUT_FILENO, msg);
             free(msg);
         }
     }
@@ -695,8 +692,7 @@ void gestionar_signal_interrupt_worker(int sig, TaskManager *task_manager, Confi
     close(config->base.socket_fd);
     free(config->work_dir);
 
-    const char *exit_msg = "Worker finalitzat correctament\n";
-    write(STDOUT_FILENO, exit_msg, strlen(exit_msg));
+    write_message(STDOUT_FILENO, "Worker finalitzat correctament\n");
 
     _exit(0);
 }

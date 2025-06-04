@@ -37,7 +37,7 @@ int verificar_checksum(const char *file_name, const char *received_checksum) {
     uint32_t file_size;
 
     if (calcular_md5(file_name, calculated_checksum, &file_size) < 0) {
-        write(STDERR_FILENO, "Error calculant MD5SUM\n", 23);
+        write_message(STDERR_FILENO, "Error calculant MD5SUM.\n");
         return -1;
     }
 
@@ -59,10 +59,10 @@ int processar_media(const char *file_name, int factor) {
         int result = SO_compressImage(mutable_file_name, factor);
         return result;    
     } else if (strstr(file_name, ".mp3")) {
-        write(STDERR_FILENO, "Error: .mp3 no suportat. Només .wav.\n", 38);
+        write_message(STDERR_FILENO, "Error: .mp3 no suportat. Només .wav.\n");
         return ERROR_NOT_WAV;
     } else {
-        write(STDERR_FILENO, "Error: Tipus de fitxer no compatible.\n", 38);
+        write_message(STDERR_FILENO, "Error: Tipus de fitxer no suportat per a compressió.\n");
         return ERROR_UNSUPPORTED_FORMAT;
     }
 }
@@ -81,13 +81,13 @@ void enviar_heartbeat(int signo) {
     inicialitzar_trama(&heartbeat_trama, 0x12, "Heartbeat");
 
     if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
-        write(STDERR_FILENO, "Error enviant heartbeat a Gotham. Intentant reconnectar...\n", 60);
-
+        write_message(STDERR_FILENO, "Error enviant heartbeat a Gotham.\n");
+        write_message(STDERR_FILENO, "Intentant reconnectar...\n");
         if (reconnectar_gotham(&config) == 0) {
-            write(STDOUT_FILENO, "Reconnexió exitosa. Enviant heartbeat...\n", 43);
+            write_message(STDOUT_FILENO, "Reconnexió amb Gotham exitosa.\n");
             write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
         } else {
-            write(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n", 36);
+            write_message(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n");
         }
     } 
 
@@ -107,17 +107,17 @@ void *handle_task(void *arg) {
 
     Trama request_trama;
     if (safe_read(client_socket, &request_trama, sizeof(Trama)) < 0) {
-        write(STDERR_FILENO, "Error: No es pot llegir la trama completa de 256 bytes\n", 55);
+        write_message(STDERR_FILENO, "Error: No es pot llegir la trama completa de 256 bytes\n");
         goto error_con_ko;
     }
 
     if (request_trama.data_length > sizeof(request_trama.data)) {
-        write(STDERR_FILENO, "Data_length massa gran, descartant trama\n", 42);
+        write_message(STDERR_FILENO, "Error: Data_length massa gran, descartant trama\n");
         goto error_con_ko;
     }
 
     if (request_trama.type != 0x03) {
-        write(STDERR_FILENO, "Trama rebutjada per tipus incorrecte\n", 37);
+        write_message(STDERR_FILENO, "Error: Trama rebutjada per tipus incorrecte\n");
         goto error_con_ko;
     }
 
@@ -165,7 +165,7 @@ void *handle_task(void *arg) {
     TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
 
     if (!metadata) {
-        write(STDOUT_FILENO, "Creant nova tasca per al fitxer\n", 33);
+        write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
 
         pthread_mutex_lock(&shared_mem_mutex);
         metadata = (TaskMetadata *)((char *)shared_mem + current_mem_size);
@@ -178,17 +178,17 @@ void *handle_task(void *arg) {
         pthread_mutex_unlock(&shared_mem_mutex);
         add_task_to_manager(&task_manager, client_socket, file_name, &config);
     } else {
-        write(STDOUT_FILENO, "Reprenent tasca existent\n", 26);
+        write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
     }
 
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
-        write(STDERR_FILENO, "Error rebent el fitxer\n", 23);
+        write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
         goto error_con_ko;
     }
 
 
     if (processar_media(file_name, factor) != NO_ERROR) {
-        write(STDERR_FILENO, "Error processant el fitxer\n", 27);
+        write_message(STDERR_FILENO, "Error processant el fitxer.\n");
         goto error_con_ko;
     }
     
@@ -211,7 +211,7 @@ void *handle_task(void *arg) {
 
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
-        write(STDERR_FILENO, "Error enviant el fitxer processat\n", 34);
+        write_message(STDERR_FILENO, "Error enviant el fitxer processat al client.\n");
         marcar_tasca_com_fallida(metadata, &config);
         goto error_con_ko;
     }
@@ -279,7 +279,7 @@ void listener_harley_principal(ConfigWorker *config) {
         exit(EXIT_FAILURE);
     }
 
-    write(STDOUT_FILENO, "Worker principal esperant connexions de Fleck...\n", 48);
+    write_message(STDOUT_FILENO, "Worker Harley principal iniciat i escoltant connexions...\n");
 
     while (1) {
         int client_socket = accept(server_fd, NULL, NULL);
@@ -327,14 +327,14 @@ void *gotham_listener_thread(void *arg) {
     while (1) {
         Trama trama;
         if (config->base.socket_fd <= 0) {
-            write(STDERR_FILENO, "Socket no válido, intentando reconectar...\n", 45);
+            write_message(STDERR_FILENO, "Socket de Gotham no vàlid, intentant reconectar...\n");
             reconnectar_gotham(config);
             continue;
         }
 
         ssize_t bytes_read = read(config->base.socket_fd, &trama, sizeof(trama));
         if (bytes_read != sizeof(trama)) {
-            write(STDERR_FILENO, "Error rebent missatge de Gotham, intentant reconectar...\n", 56);
+            write_message(STDERR_FILENO, "Error llegint trama de Gotham.\n");
             reconnectar_gotham(config);
             continue;
         }
@@ -343,21 +343,24 @@ void *gotham_listener_thread(void *arg) {
 
         switch (trama.type) {
             case 0x02:
-                write(STDOUT_FILENO, "Connexió confirmada amb Gotham\n", 32);
+                // Trama de connexió de Gotham
+                write_message(STDOUT_FILENO, "Gotham ha confirmat la connexió.\n");
                 break;
             case 0x08:
                 config->is_primary_worker = 1;
                 listener_harley_principal(config);
                 break;
             case 0x09:
-                write(STDERR_FILENO, "Gotham ha notificat un error.\n", 30);
+                // Trama d'error de Gotham
+                write_message(STDERR_FILENO, "Gotham ha enviat una trama d'error.\n");
                 break;
             case 0x12:
-                write(STDOUT_FILENO, "Gotham ha demanat un heartbeat. Responent...\n", 45);
+                // Heartbeat de Gotham
+                write_message(STDOUT_FILENO, "Gotham ha demanat un heartbeat. Responent...\n");
                 enviar_heartbeat(0);
                 break;
             default:
-                write(STDERR_FILENO, "Trama desconeguda de Gotham\n", 29);
+                write_message(STDERR_FILENO, "Trama desconeguda de Gotham.\n");
                 // Enviar trama de error (0x09) de respuesta
                 Trama error_trama;
                 error_trama.type = 0x09;
@@ -365,7 +368,7 @@ void *gotham_listener_thread(void *arg) {
                 memset(error_trama.data, 0, sizeof(error_trama.data)); // Vaciar data
 
                 if (write(config->base.socket_fd, &error_trama, sizeof(error_trama)) != sizeof(error_trama)) {
-                    write(STDERR_FILENO, "Error enviant trama de resposta d'error a Gotham\n", 49);
+                    write_message(STDERR_FILENO, "Error enviant trama de resposta d'error a Gotham.\n");
                 }
 
                 break;
@@ -386,7 +389,7 @@ void gestionar_signal_interrupt(int sig) {
  */
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        write(STDOUT_FILENO, "Us: ./harley <fitxer_configuracio>\n", 36);
+        write_message(STDERR_FILENO, "Expected: ./harley <config file>\n");
         return 1;
     }
 

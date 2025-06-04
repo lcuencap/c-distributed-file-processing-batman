@@ -12,6 +12,9 @@
 #include <errno.h>
 #include "sys_params.h"
 
+//Escriu un missatge al descriptor de fitxer especificat.
+void write_message(int fd, const char *message);
+
 //Calcula l'MD5SUM d'un fitxer i la seva mida en bytes.
 int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size);
 

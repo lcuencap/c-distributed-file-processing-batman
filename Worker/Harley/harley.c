@@ -348,7 +348,9 @@ void *gotham_listener_thread(void *arg) {
                 break;
             case 0x08:
                 config->is_primary_worker = 1;
-                listener_harley_principal(config);
+                pthread_t harley_thread;
+                pthread_create(&harley_thread, NULL, (void *(*)(void *))listener_harley_principal, config);
+                pthread_detach(harley_thread); 
                 break;
             case 0x09:
                 // Trama d'error de Gotham

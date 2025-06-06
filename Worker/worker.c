@@ -463,6 +463,56 @@ void enqueue_connection(int client_socket, int* connection_queue, int* queue_rea
     pthread_mutex_unlock(queue_mutex);
 }
 
+/**
+ * @brief Afegeix una nova tasca a la memòria compartida. Amplia la memòria si cal.
+ */
+TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, const char *checksum,
+                                   void **shared_mem_ptr, size_t *mem_size,
+                                   int shared_mem_fd, pthread_mutex_t *mutex) {
+    pthread_mutex_lock(mutex);
+
+    TaskMetadata *iter = (TaskMetadata *)(*shared_mem_ptr);
+    size_t num_entries = *mem_size / sizeof(TaskMetadata);
+    TaskMetadata *found = NULL;
+
+    for (size_t i = 0; i < num_entries; i++) {
+        if (iter[i].status == TASK_EMPTY || iter[i].file_name[0] == '\0') {
+            found = &iter[i];
+            break;
+        }
+    }
+
+    if (!found) {
+        if (expandir_memoria_compartida(shared_mem_ptr, mem_size, shared_mem_fd, mutex) < 0) {
+            pthread_mutex_unlock(mutex);
+            return NULL;
+        }
+        iter = (TaskMetadata *)(*shared_mem_ptr);
+        found = &iter[*mem_size / sizeof(TaskMetadata) - 1];  // Última posició
+    }
+
+    memset(found, 0, sizeof(TaskMetadata));
+    strncpy(found->file_name, file_name, sizeof(found->file_name));
+    found->total_size = file_size;
+    found->processed_offset = 0;
+    found->bytes_sent = 0;
+    found->status = TASK_RECEIVING;
+    strncpy(found->checksum, checksum, MD5SUM_LENGTH);
+
+    pthread_mutex_unlock(mutex);
+    return found;
+}
+
+/**
+ * @brief Allibera l'espai ocupat per una tasca (la marca com a buida).
+ */
+void free_task_metadata(TaskMetadata *metadata, pthread_mutex_t *mutex) {
+    pthread_mutex_lock(mutex);
+    memset(metadata, 0, sizeof(TaskMetadata));
+    metadata->status = TASK_EMPTY;
+    pthread_mutex_unlock(mutex);
+}
+
 
 int dequeue_connection(int* connection_queue, int* queue_front, int* queue_count,
     pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full) {

@@ -159,7 +159,7 @@ void *handle_task(void *arg) {
     inicialitzar_trama(&resposta_con_ok, 0x03, "");
     if (write(client_socket, &resposta_con_ok, sizeof(resposta_con_ok)) != sizeof(resposta_con_ok)) {
         goto error_con_ko;
-}
+    }
 
     // Buscar/crear metadata
     TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
@@ -168,7 +168,12 @@ void *handle_task(void *arg) {
         write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
 
         pthread_mutex_lock(&shared_mem_mutex);
-        metadata = (TaskMetadata *)((char *)shared_mem + current_mem_size);
+        metadata = alloc_task_metadata(file_name, file_size, received_checksum,
+                                        &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
+        if (!metadata) {
+            write_message(STDERR_FILENO, "Error: No s'ha pogut reservar espai per la nova tasca.\n");
+            goto error_con_ko;
+        }
         strncpy(metadata->file_name, file_name, sizeof(metadata->file_name));
         metadata->total_size = file_size;
         metadata->processed_offset = 0;
@@ -217,6 +222,7 @@ void *handle_task(void *arg) {
     }
 
     remove_task(&task_manager, client_socket, &task_manager.mutex);
+    free_task_metadata(metadata, &shared_mem_mutex);  // 👈 alliberem la metadata
 
     close(client_socket);
 

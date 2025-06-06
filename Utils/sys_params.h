@@ -11,6 +11,7 @@
 
 // Enumeració per als estats de les tasques
 typedef enum {
+    TASK_EMPTY,            // Entrada buida disponible per reutilitzar
     TASK_PENDING,           // Tasca pendent d'inici
     TASK_IN_PROGRESS,       // En progrés (per Gotham)
     TASK_RECEIVING,         // Tasca en procés de recepció del fitxer

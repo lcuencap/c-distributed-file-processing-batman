@@ -320,6 +320,12 @@ void listener_harley_principal(ConfigWorker *config) {
     close(server_fd);
 }
 
+void *listener_harley_wrapper(void *arg) {
+    listener_harley_principal((ConfigWorker *)arg);
+    return NULL;
+}
+
+
 
 void *gotham_listener_thread(void *arg) {
     ConfigWorker *config = (ConfigWorker *)arg;
@@ -349,7 +355,7 @@ void *gotham_listener_thread(void *arg) {
             case 0x08:
                 config->is_primary_worker = 1;
                 pthread_t harley_thread;
-                pthread_create(&harley_thread, NULL, (void *(*)(void *))listener_harley_principal, config);
+                pthread_create(&harley_thread, NULL, listener_harley_wrapper, config);
                 pthread_detach(harley_thread); 
                 break;
             case 0x09:

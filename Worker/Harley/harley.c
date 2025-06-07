@@ -167,8 +167,6 @@ void *handle_task(void *arg) {
 
     if (!metadata) {
         write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
-
-        pthread_mutex_lock(&shared_mem_mutex);
         metadata = alloc_task_metadata(file_name, file_size, received_checksum,
                                         &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
         if (!metadata) {
@@ -181,7 +179,6 @@ void *handle_task(void *arg) {
         metadata->bytes_sent = 0;
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
-        pthread_mutex_unlock(&shared_mem_mutex);
         add_task_to_manager(&task_manager, client_socket, file_name, &config);
     } else {
         write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");

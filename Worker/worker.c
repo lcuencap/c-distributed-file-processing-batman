@@ -466,6 +466,7 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
                                    void **shared_mem_ptr, size_t *mem_size,
                                    int shared_mem_fd, pthread_mutex_t *mutex) {
     pthread_mutex_lock(mutex);
+    write_message(STDOUT_FILENO, "S'ha fet lock del shared_mem_mutex a alloc_task_metadata.\n");
 
     TaskMetadata *iter = (TaskMetadata *)(*shared_mem_ptr);
     size_t num_entries = *mem_size / sizeof(TaskMetadata);
@@ -479,6 +480,7 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
     }
 
     if (!found) {
+        write_message(STDOUT_FILENO, "No s'ha trobat lloc buit, haurem d'expandit memoria compartida.\n");
         if (expandir_memoria_compartida(shared_mem_ptr, mem_size, shared_mem_fd) < 0) {
             pthread_mutex_unlock(mutex);
             return NULL;

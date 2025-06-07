@@ -355,11 +355,13 @@ void *gotham_listener_thread(void *arg) {
         ssize_t bytes_read = read(config->base.socket_fd, &trama, sizeof(trama));
         if (bytes_read != sizeof(trama)) {
             write_message(STDERR_FILENO, "Error llegint trama de Gotham.\n");
-            reconnectar_gotham(config);
+            if (reconnectar_gotham(config) < 0) {
+                write_message(STDERR_FILENO, "No s'ha pogut reconnectar amb Gotham. Aturant el worker.\n");
+                keep_running = 0;
+                break;  
+            }
             continue;
         }
-
-
 
         switch (trama.type) {
             case 0x02:

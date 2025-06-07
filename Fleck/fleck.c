@@ -367,6 +367,8 @@ int validar_connexio_worker() {
 int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
     Trama trama;
     char data[245];
+    struct timeval timeout;
+
     off_t total_enviat = 0;
     snprintf(data, sizeof(data), "%s&%u&%s&%d", file_name, file_size, md5sum, factor);
     inicialitzar_trama(&trama, 0x03, data);
@@ -472,7 +474,11 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
 
     }
 
-    
+    // Eliminar timeout per esperar indefinidament CHECK_OK
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
+    setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
     Trama resposta_md5;
     if (safe_read(worker_fd, &resposta_md5, sizeof(Trama)) < 0) {
         write_message(STDOUT_FILENO, "[FLECK] Error llegint confirmació del Worker.\n");
@@ -684,6 +690,8 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
  * @return 0 si la distorsió és correcta, -1 si hi ha un error.
  */
 int gestionar_distorsio_worker(const char *worker_ip, int worker_port, const char *file_name, int factor) {
+    struct timeval timeout;
+
     if (!worker_ip || worker_port <= 0 || !file_name || factor <= 0) {
         write_message(STDOUT_FILENO, "Error: Paràmetres de distorsió no vàlids\n");
         return -1;
@@ -717,6 +725,12 @@ int gestionar_distorsio_worker(const char *worker_ip, int worker_port, const cha
         enviar_trama_desconnexio_worker();
         return -1;
     }
+
+    //Reactivar timeout per lectures futures (ex. 5 segons)
+    timeout.tv_sec = TIMEOUT_SECONDS;
+    timeout.tv_usec = 0;
+    setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
 
     char output_file[256];
     snprintf(output_file, sizeof(output_file), "distorted_%s", file_name);

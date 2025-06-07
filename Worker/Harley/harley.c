@@ -186,20 +186,28 @@ void *handle_task(void *arg) {
         write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
     }
 
+    write_message(STDOUT_FILENO, "[HARLEY] Iniciant recepció de fitxer...\n");
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
         write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
         goto error_con_ko;
     }
-
-
+    write_message(STDOUT_FILENO, "[HARLEY] Fitxer rebut correctament, iniciant compressió...\n");
+    
+    write_message(STDOUT_FILENO, "[HARLEY] Executant processar_media per fitxer: ");
+    write_message(STDOUT_FILENO, file_name);
+    write_message(STDOUT_FILENO, "\n");
+    
     if (processar_media(file_name, factor) != NO_ERROR) {
         write_message(STDERR_FILENO, "Error processant el fitxer.\n");
         goto error_con_ko;
     }
-    
+    write_message(STDOUT_FILENO, "[HARLEY] Compressió finalitzada. Obrint fitxer per determinar mida...\n");
+
+
     // Recalcular la mida real del fitxer processat
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
+        write_message(STDERR_FILENO, "[HARLEY] Error obrint fitxer processat. Potser no s'ha creat?\n");
         goto error_con_ko;
     }
     uint32_t distorted_file_size;
@@ -213,6 +221,7 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&shared_mem_mutex);
     metadata->total_size = distorted_file_size;
     pthread_mutex_unlock(&shared_mem_mutex);
+    write_message(STDOUT_FILENO, "[HARLEY] Enviant fitxer processat a Fleck...\n");
 
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
@@ -221,8 +230,9 @@ void *handle_task(void *arg) {
         goto error_con_ko;
     }
 
+
     remove_task(&task_manager, client_socket, &task_manager.mutex);
-    free_task_metadata(metadata, &shared_mem_mutex);  // 👈 alliberem la metadata
+    free_task_metadata(metadata, &shared_mem_mutex);  
 
     close(client_socket);
 

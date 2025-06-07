@@ -752,7 +752,6 @@ void *thread_distorsio_worker(void *arg) {
     } else {
         write_message(STDOUT_FILENO, "Error during distortion :(\n");
     }
-    write_message(STDOUT_FILENO, "\n$ ");
 
     free(arg);
     return NULL;

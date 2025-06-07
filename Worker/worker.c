@@ -19,7 +19,7 @@
  * @param shared_mem_mutex Mutex para proteger el acceso concurrente.
  * @return 0 si la expansión fue exitosa, -1 en caso de error.
  */
-int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int shared_mem_fd, pthread_mutex_t *shared_mem_mutex) {
+int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int shared_mem_fd) {
     size_t nueva_mem_size = *current_mem_size + SHARED_MEM_SIZE;
     write_message(STDOUT_FILENO, "[DEBUG] Intentant expandir la memòria compartida...\n");
 
@@ -479,7 +479,7 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
     }
 
     if (!found) {
-        if (expandir_memoria_compartida(shared_mem_ptr, mem_size, shared_mem_fd, mutex) < 0) {
+        if (expandir_memoria_compartida(shared_mem_ptr, mem_size, shared_mem_fd) < 0) {
             pthread_mutex_unlock(mutex);
             return NULL;
         }

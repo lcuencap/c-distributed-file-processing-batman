@@ -20,14 +20,12 @@
  * @return 0 si la expansión fue exitosa, -1 en caso de error.
  */
 int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int shared_mem_fd, pthread_mutex_t *shared_mem_mutex) {
-    pthread_mutex_lock(shared_mem_mutex);
-
     size_t nueva_mem_size = *current_mem_size + SHARED_MEM_SIZE;
+    write_message(STDOUT_FILENO, "[DEBUG] Intentant expandir la memòria compartida...\n");
 
     // Ampliar el tamaño del archivo de memoria compartida
     if (ftruncate(shared_mem_fd, nueva_mem_size) < 0) {
         write_message(STDERR_FILENO, "Error ampliant mida de la memòria compartida\n");
-        pthread_mutex_unlock(shared_mem_mutex);
         return -1;
     }
 
@@ -35,7 +33,6 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     void *new_mem = mmap(NULL, nueva_mem_size, PROT_READ | PROT_WRITE, MAP_SHARED, shared_mem_fd, 0);
     if (new_mem == MAP_FAILED) {
         write_message(STDERR_FILENO, "Error mapant nova memòria compartida\n");
-        pthread_mutex_unlock(shared_mem_mutex);
         return -1;
     }
 
@@ -49,7 +46,6 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     *shared_mem = new_mem;
     *current_mem_size = nueva_mem_size;
 
-    pthread_mutex_unlock(shared_mem_mutex);
     return 0;
 }
 

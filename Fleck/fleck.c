@@ -956,7 +956,18 @@ void gestionar_comandes_fleck() {
             const char *extensions[] = {".txt"};
             gestionar_comanda_list(extensions, 1);
         } else if (strncasecmp(command, "DISTORT", 7) == 0) {
-            gestionar_comanda_distort(command); 
+            char *cmd_copy = strdup(command);
+            if (!cmd_copy) {
+                write_message(STDOUT_FILENO, "Error assignant memòria per la comanda\n");
+            } else {
+                pthread_t tid;
+                if (pthread_create(&tid, NULL, gestionar_comanda_distort_thread, cmd_copy) != 0) {
+                    write_message(STDOUT_FILENO, "Error creant el thread per la comanda DISTORT\n");
+                    free(cmd_copy);
+                } else {
+                    pthread_detach(tid);
+                }
+            }
         } else if (strcmp(command_upper, "LOGOUT") == 0) {
             if (connected_to_gotham) {
                 Trama trama;

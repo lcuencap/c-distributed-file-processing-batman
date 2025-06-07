@@ -40,16 +40,16 @@ void enviar_heartbeat(int signo) {
     inicialitzar_trama(&heartbeat_trama, 0x12, "Heartbeat");
 
     if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
-        write(STDERR_FILENO, "Error enviant heartbeat a Gotham. Intentant reconnectar...\n", 60);
+        write_message(STDERR_FILENO, "Error enviant heartbeat a Gotham. Intentant reconnectar...\n");
 
         if (reconnectar_gotham(&config) == 0) {
-            write(STDOUT_FILENO, "Reconnexió exitosa. Enviant heartbeat...\n", 43);
+            write_message(STDOUT_FILENO, "Reconnexió exitosa. Enviant heartbeat...\n");
             write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
         } else {
-            write(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n", 36);
+            write_message(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n");
         }
     } else {
-        write(STDOUT_FILENO, "Heartbeat enviat a Gotham\n", 27);
+        write_message(STDOUT_FILENO, "Heartbeat enviat a Gotham\n");
     }
 
     alarm(10);

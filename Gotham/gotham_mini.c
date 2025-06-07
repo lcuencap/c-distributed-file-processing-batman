@@ -45,15 +45,15 @@ void *handle_worker(void *arg) {
     free(arg);
 
     Trama trama;
-    while (read(worker_socket, &trama, sizeof(trama)) == sizeof(trama)) {
 
+    while (read(worker_socket, &trama, sizeof(trama)) == sizeof(trama)) {
         if (trama.type == 0x02) {
             char *workerType = strtok(trama.data, "&");
             char *workerIP = strtok(NULL, "&");
             char *workerPortStr = strtok(NULL, "&");
 
             if (!workerType || !workerIP || !workerPortStr) {
-                printf("Trama de worker mal formada.\n");
+                write_message(STDOUT_FILENO, "Trama de worker mal formada.\n");
                 close(worker_socket);
                 continue;
             }
@@ -66,9 +66,7 @@ void *handle_worker(void *arg) {
             worker.port_fleck = atoi(workerPortStr);
             worker.base.type = (strcasecmp(workerType, "TEXT") == 0) ? ENIGMA : HARLEY;
 
-            // Promoció a principal si no n’hi ha cap del mateix tipus
             int ha_de_ser_principal = 1;
-
             pthread_mutex_lock(&worker_mutex);
             for (int i = 0; i < num_workers; i++) {
                 if (workers[i].base.type == worker.base.type && workers[i].is_primary_worker) {
@@ -78,7 +76,6 @@ void *handle_worker(void *arg) {
             }
             worker.is_primary_worker = ha_de_ser_principal;
 
-            // Afegeix a la llista
             ConfigWorker *temp = realloc(workers, (num_workers + 1) * sizeof(ConfigWorker));
             if (!temp) {
                 pthread_mutex_unlock(&worker_mutex);
@@ -89,30 +86,69 @@ void *handle_worker(void *arg) {
             workers[num_workers] = worker;
             num_workers++;
             pthread_mutex_unlock(&worker_mutex);
-            printf("Worker registrat com a tipus: %s\n", worker.base.type == ENIGMA ? "ENIGMA" : "HARLEY");
 
+            // Mensaje tipo
+            const char *tipus = (worker.base.type == ENIGMA) ? "ENIGMA" : "HARLEY";
+            int len1 = snprintf(NULL, 0, "Worker registrat com a tipus: %s\n", tipus) + 1;
+            char *msg1 = malloc(len1);
+            if (msg1) {
+                snprintf(msg1, len1, "Worker registrat com a tipus: %s\n", tipus);
+                write_message(STDOUT_FILENO, msg1);
+                free(msg1);
+            }
 
             // Envia CON_OK
             Trama resposta;
             inicialitzar_trama(&resposta, 0x02, "");
             write(worker_socket, &resposta, sizeof(resposta));
-            printf("Worker registrat: %s:%d (type: %s)\n", workerIP, worker.port_fleck, workerType);
 
-            // Envia 0x08 si és principal
+            // Mensaje registro
+            int len2 = snprintf(NULL, 0, "Worker registrat: %s:%d (type: %s)\n", workerIP, worker.port_fleck, workerType) + 1;
+            char *msg2 = malloc(len2);
+            if (msg2) {
+                snprintf(msg2, len2, "Worker registrat: %s:%d (type: %s)\n", workerIP, worker.port_fleck, workerType);
+                write_message(STDOUT_FILENO, msg2);
+                free(msg2);
+            }
+
+            // Promocionar a principal
             if (worker.is_primary_worker) {
                 Trama promotora;
                 inicialitzar_trama(&promotora, 0x08, "");
                 write(worker_socket, &promotora, sizeof(promotora));
-                printf("Trama 0x08 enviada al worker per promoure'l a principal\n");
+                write_message(STDOUT_FILENO, "Trama 0x08 enviada al worker per promoure'l a principal\n");
             }
+
         } else if (trama.type == 0x07) {
+            int len3 = snprintf(NULL, 0, "Worker %s desconnectat\n", trama.data) + 1;
+            char *msg3 = malloc(len3);
+            if (msg3) {
+                snprintf(msg3, len3, "Worker %s desconnectat\n", trama.data);
+                write_message(STDOUT_FILENO, msg3);
+                free(msg3);
+            }
+
             printf("Worker %s desconnectat\n", trama.data);
-            printf("Desconnectant worker %d\n", trama.type);
-            // Eliminar worker del tipus corresponent
-            // Si era principal → assignar nou principal i enviar 0x08 al nou
+
+            int len4 = snprintf(NULL, 0, "Desconnectant worker %d\n", trama.type) + 1;
+            char *msg4 = malloc(len4);
+            if (msg4) {
+                snprintf(msg4, len4, "Desconnectant worker %d\n", trama.type);
+                write_message(STDOUT_FILENO, msg4);
+                free(msg4);
+            }
+
+            // Aquí se puede añadir la lógica de eliminarlo y reasignar nou principal
+
         } else if (trama.type == 0x12) {
-            printf("Worker %s ha enviat un heartbeat\n", trama.data);
-            // Actualitzar timestamp de l'últim heartbeat
+            int len5 = snprintf(NULL, 0, "Worker %s ha enviat un heartbeat\n", trama.data) + 1;
+            char *msg5 = malloc(len5);
+            if (msg5) {
+                snprintf(msg5, len5, "Worker %s ha enviat un heartbeat\n", trama.data);
+                write_message(STDOUT_FILENO, msg5);
+                free(msg5);
+            }
+
             pthread_mutex_lock(&worker_mutex);
             for (int i = 0; i < num_workers; i++) {
                 if (strcmp(workers[i].ip_fleck, trama.data) == 0) {
@@ -121,9 +157,21 @@ void *handle_worker(void *arg) {
                 }
             }
             pthread_mutex_unlock(&worker_mutex);
-        } else{
-            printf("Trama desconeguda rebuda del worker: 0x%02X\n", trama.type);
-            // Trama desconeguda → enviar 0x09
+
+        } else {
+            int len6 = snprintf(NULL, 0, "Trama desconeguda rebuda del worker: 0x%02X\n", trama.type) + 1;
+            char *msg6 = malloc(len6);
+            if (msg6) {
+                snprintf(msg6, len6, "Trama desconeguda rebuda del worker: 0x%02X\n", trama.type);
+                write_message(STDOUT_FILENO, msg6);
+                free(msg6);
+            }
+            // Enviem trama 0x09 per notificar error desconegut
+            Trama error_trama;
+            memset(&error_trama, 0, sizeof(Trama));
+            error_trama.type = 0x09;
+            error_trama.data_length = 0;
+            write(worker_socket, &error_trama, sizeof(error_trama));
         }
     }
 
@@ -177,7 +225,17 @@ void *gestionar_client_fleck(void *arg) {
             Trama resposta;
             inicialitzar_trama(&resposta, 0x01, "");
             write(client_socket, &resposta, sizeof(resposta));
-            write(STDOUT_FILENO, "Arthur connected to Mr. J System. Let the chaos begin!:)\n", 58);
+
+            // Extreure el nom del Fleck
+            char *username = strtok(trama.data, "&");
+
+            char msg[128];
+            if (username) {
+                snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)\n", username);
+            } else {
+                snprintf(msg, sizeof(msg), "Unknown user connected to Mr. J System. Let the chaos begin!:)\n");
+            }
+            write(STDOUT_FILENO, msg, strlen(msg));
         } else if (trama.type == 0x10) {
 
             char *mediaType = strtok(trama.data, "&");

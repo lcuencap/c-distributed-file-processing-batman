@@ -30,6 +30,7 @@ int queue_front = 0, queue_rear = 0, queue_count = 0;
 pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
+volatile sig_atomic_t keep_running = 1;
 
 
 int verificar_checksum(const char *file_name, const char *received_checksum) {
@@ -37,7 +38,7 @@ int verificar_checksum(const char *file_name, const char *received_checksum) {
     uint32_t file_size;
 
     if (calcular_md5(file_name, calculated_checksum, &file_size) < 0) {
-        write(STDERR_FILENO, "Error calculant MD5SUM\n", 23);
+        write_message(STDERR_FILENO, "Error calculant MD5SUM.\n");
         return -1;
     }
 
@@ -59,10 +60,10 @@ int processar_media(const char *file_name, int factor) {
         int result = SO_compressImage(mutable_file_name, factor);
         return result;    
     } else if (strstr(file_name, ".mp3")) {
-        write(STDERR_FILENO, "Error: .mp3 no suportat. Només .wav.\n", 38);
+        write_message(STDERR_FILENO, "Error: .mp3 no suportat. Només .wav.\n");
         return ERROR_NOT_WAV;
     } else {
-        write(STDERR_FILENO, "Error: Tipus de fitxer no compatible.\n", 38);
+        write_message(STDERR_FILENO, "Error: Tipus de fitxer no suportat per a compressió.\n");
         return ERROR_UNSUPPORTED_FORMAT;
     }
 }
@@ -81,13 +82,13 @@ void enviar_heartbeat(int signo) {
     inicialitzar_trama(&heartbeat_trama, 0x12, "Heartbeat");
 
     if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
-        write(STDERR_FILENO, "Error enviant heartbeat a Gotham. Intentant reconnectar...\n", 60);
-
+        write_message(STDERR_FILENO, "Error enviant heartbeat a Gotham.\n");
+        write_message(STDERR_FILENO, "Intentant reconnectar...\n");
         if (reconnectar_gotham(&config) == 0) {
-            write(STDOUT_FILENO, "Reconnexió exitosa. Enviant heartbeat...\n", 43);
+            write_message(STDOUT_FILENO, "Reconnexió amb Gotham exitosa.\n");
             write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
         } else {
-            write(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n", 36);
+            write_message(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n");
         }
     } 
 
@@ -107,17 +108,17 @@ void *handle_task(void *arg) {
 
     Trama request_trama;
     if (safe_read(client_socket, &request_trama, sizeof(Trama)) < 0) {
-        write(STDERR_FILENO, "Error: No es pot llegir la trama completa de 256 bytes\n", 55);
+        write_message(STDERR_FILENO, "Error: No es pot llegir la trama completa de 256 bytes\n");
         goto error_con_ko;
     }
 
     if (request_trama.data_length > sizeof(request_trama.data)) {
-        write(STDERR_FILENO, "Data_length massa gran, descartant trama\n", 42);
+        write_message(STDERR_FILENO, "Error: Data_length massa gran, descartant trama\n");
         goto error_con_ko;
     }
 
     if (request_trama.type != 0x03) {
-        write(STDERR_FILENO, "Trama rebutjada per tipus incorrecte\n", 37);
+        write_message(STDERR_FILENO, "Error: Trama rebutjada per tipus incorrecte\n");
         goto error_con_ko;
     }
 
@@ -159,42 +160,52 @@ void *handle_task(void *arg) {
     inicialitzar_trama(&resposta_con_ok, 0x03, "");
     if (write(client_socket, &resposta_con_ok, sizeof(resposta_con_ok)) != sizeof(resposta_con_ok)) {
         goto error_con_ko;
-}
+    }
 
     // Buscar/crear metadata
     TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
 
     if (!metadata) {
-        write(STDOUT_FILENO, "Creant nova tasca per al fitxer\n", 33);
-
-        pthread_mutex_lock(&shared_mem_mutex);
-        metadata = (TaskMetadata *)((char *)shared_mem + current_mem_size);
+        write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
+        metadata = alloc_task_metadata(file_name, file_size, received_checksum,
+                                        &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
+        if (!metadata) {
+            write_message(STDERR_FILENO, "Error: No s'ha pogut reservar espai per la nova tasca.\n");
+            goto error_con_ko;
+        }
         strncpy(metadata->file_name, file_name, sizeof(metadata->file_name));
         metadata->total_size = file_size;
         metadata->processed_offset = 0;
         metadata->bytes_sent = 0;
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
-        pthread_mutex_unlock(&shared_mem_mutex);
         add_task_to_manager(&task_manager, client_socket, file_name, &config);
     } else {
-        write(STDOUT_FILENO, "Reprenent tasca existent\n", 26);
+        write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
     }
 
+    write_message(STDOUT_FILENO, "[HARLEY] Iniciant recepció de fitxer...\n");
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
-        write(STDERR_FILENO, "Error rebent el fitxer\n", 23);
+        write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
         goto error_con_ko;
     }
-
-
-    if (processar_media(file_name, factor) != NO_ERROR) {
-        write(STDERR_FILENO, "Error processant el fitxer\n", 27);
-        goto error_con_ko;
-    }
+    write_message(STDOUT_FILENO, "[HARLEY] Fitxer rebut correctament, iniciant compressió...\n");
     
+    write_message(STDOUT_FILENO, "[HARLEY] Executant processar_media per fitxer: ");
+    write_message(STDOUT_FILENO, file_name);
+    write_message(STDOUT_FILENO, "\n");
+    
+    if (processar_media(file_name, factor) != NO_ERROR) {
+        write_message(STDERR_FILENO, "Error processant el fitxer.\n");
+        goto error_con_ko;
+    }
+    write_message(STDOUT_FILENO, "[HARLEY] Compressió finalitzada. Obrint fitxer per determinar mida...\n");
+
+
     // Recalcular la mida real del fitxer processat
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
+        write_message(STDERR_FILENO, "[HARLEY] Error obrint fitxer processat. Potser no s'ha creat?\n");
         goto error_con_ko;
     }
     uint32_t distorted_file_size;
@@ -208,15 +219,18 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&shared_mem_mutex);
     metadata->total_size = distorted_file_size;
     pthread_mutex_unlock(&shared_mem_mutex);
+    write_message(STDOUT_FILENO, "[HARLEY] Enviant fitxer processat a Fleck...\n");
 
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
-        write(STDERR_FILENO, "Error enviant el fitxer processat\n", 34);
+        write_message(STDERR_FILENO, "Error enviant el fitxer processat al client.\n");
         marcar_tasca_com_fallida(metadata, &config);
         goto error_con_ko;
     }
 
+
     remove_task(&task_manager, client_socket, &task_manager.mutex);
+    free_task_metadata(metadata, &shared_mem_mutex);  
 
     close(client_socket);
 
@@ -239,8 +253,8 @@ error_con_ko:
 }
 
 void *worker_loop(void *arg) {
-    (void) arg;  // Evitar warnings per paràmetre no utilitzat
-    while (1) {
+    (void) arg;  
+    while (keep_running) {
         int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
             &queue_mutex, &queue_not_empty, &queue_not_full);
         int *socket_ptr = malloc(sizeof(int));
@@ -279,9 +293,9 @@ void listener_harley_principal(ConfigWorker *config) {
         exit(EXIT_FAILURE);
     }
 
-    write(STDOUT_FILENO, "Worker principal esperant connexions de Fleck...\n", 48);
+    write_message(STDOUT_FILENO, "Worker Harley principal iniciat i escoltant connexions...\n");
 
-    while (1) {
+    while (keep_running) {
         int client_socket = accept(server_fd, NULL, NULL);
         if (client_socket < 0) continue;
         
@@ -320,44 +334,57 @@ void listener_harley_principal(ConfigWorker *config) {
     close(server_fd);
 }
 
+void *listener_harley_wrapper(void *arg) {
+    listener_harley_principal((ConfigWorker *)arg);
+    return NULL;
+}
+
+
 
 void *gotham_listener_thread(void *arg) {
     ConfigWorker *config = (ConfigWorker *)arg;
 
-    while (1) {
+    while (keep_running) {
         Trama trama;
         if (config->base.socket_fd <= 0) {
-            write(STDERR_FILENO, "Socket no válido, intentando reconectar...\n", 45);
+            write_message(STDERR_FILENO, "Socket de Gotham no vàlid, intentant reconectar...\n");
             reconnectar_gotham(config);
             continue;
         }
 
         ssize_t bytes_read = read(config->base.socket_fd, &trama, sizeof(trama));
         if (bytes_read != sizeof(trama)) {
-            write(STDERR_FILENO, "Error rebent missatge de Gotham, intentant reconectar...\n", 56);
-            reconnectar_gotham(config);
+            write_message(STDERR_FILENO, "Error llegint trama de Gotham.\n");
+            if (reconnectar_gotham(config) < 0) {
+                write_message(STDERR_FILENO, "No s'ha pogut reconnectar amb Gotham. Aturant el worker.\n");
+                keep_running = 0;
+                break;  
+            }
             continue;
         }
 
-
-
         switch (trama.type) {
             case 0x02:
-                write(STDOUT_FILENO, "Connexió confirmada amb Gotham\n", 32);
+                // Trama de connexió de Gotham
+                write_message(STDOUT_FILENO, "Gotham ha confirmat la connexió.\n");
                 break;
             case 0x08:
                 config->is_primary_worker = 1;
-                listener_harley_principal(config);
+                pthread_t harley_thread;
+                pthread_create(&harley_thread, NULL, listener_harley_wrapper, config);
+                pthread_detach(harley_thread); 
                 break;
             case 0x09:
-                write(STDERR_FILENO, "Gotham ha notificat un error.\n", 30);
+                // Trama d'error de Gotham
+                write_message(STDERR_FILENO, "Gotham ha enviat una trama d'error.\n");
                 break;
             case 0x12:
-                write(STDOUT_FILENO, "Gotham ha demanat un heartbeat. Responent...\n", 45);
+                // Heartbeat de Gotham
+                write_message(STDOUT_FILENO, "Gotham ha demanat un heartbeat. Responent...\n");
                 enviar_heartbeat(0);
                 break;
             default:
-                write(STDERR_FILENO, "Trama desconeguda de Gotham\n", 29);
+                write_message(STDERR_FILENO, "Trama desconeguda de Gotham.\n");
                 // Enviar trama de error (0x09) de respuesta
                 Trama error_trama;
                 error_trama.type = 0x09;
@@ -365,7 +392,7 @@ void *gotham_listener_thread(void *arg) {
                 memset(error_trama.data, 0, sizeof(error_trama.data)); // Vaciar data
 
                 if (write(config->base.socket_fd, &error_trama, sizeof(error_trama)) != sizeof(error_trama)) {
-                    write(STDERR_FILENO, "Error enviant trama de resposta d'error a Gotham\n", 49);
+                    write_message(STDERR_FILENO, "Error enviant trama de resposta d'error a Gotham.\n");
                 }
 
                 break;
@@ -376,17 +403,17 @@ void *gotham_listener_thread(void *arg) {
 }
 
 void gestionar_signal_interrupt(int sig) {
-    gestionar_signal_interrupt_worker(sig, &task_manager, &config, 
-                               shared_mem, &shared_mem_fd, "/harley_shared_mem",
-                               &task_manager.mutex, current_mem_size, &shared_mem_mutex);
+    (void)sig;
+    keep_running = 0;
 }
+
 
 /**
  * @brief Punt d'entrada principal.
  */
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        write(STDOUT_FILENO, "Us: ./harley <fitxer_configuracio>\n", 36);
+        write_message(STDERR_FILENO, "Expected: ./harley <config file>\n");
         return 1;
     }
 
@@ -424,5 +451,15 @@ int main(int argc, char *argv[]) {
 
     pthread_join(gotham_thread, NULL);
 
+    // Neteja FINAL, després del Ctrl+C
+    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
+        pthread_cancel(thread_pool[i]);      
+        pthread_join(thread_pool[i], NULL);
+    }
+
+    gestionar_signal_interrupt_worker(SIGINT, &task_manager, &config,
+                                      shared_mem, &shared_mem_fd, "/harley_shared_mem",
+                                      &task_manager.mutex, current_mem_size, &shared_mem_mutex);
+                             
     return 0;
 }

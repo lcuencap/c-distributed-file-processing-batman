@@ -83,8 +83,7 @@ void print_all_progress() {
     char buffer[512];
 
     if (!head) {
-        const char *msg = "You have no ongoing or finished distorsions\n";
-        write(STDOUT_FILENO, msg, strlen(msg));
+        write_message(STDOUT_FILENO, "You have no ongoing or finished distorsions.\n");
         pthread_mutex_unlock(&status_mutex);
         return;
     }
@@ -98,7 +97,7 @@ void print_all_progress() {
         if (offset < (int)(sizeof(buffer) - 1)) {
             buffer[offset++] = '\n';
         }
-        write(STDOUT_FILENO, buffer, offset);
+        write_message(STDOUT_FILENO, buffer);
         curr = curr->next;
     }
 
@@ -113,7 +112,7 @@ void enviar_trama_desconnexio_worker() {
         write(worker_fd, &trama, sizeof(trama));
         close(worker_fd);
         worker_fd = -1;
-        write(STDOUT_FILENO, "Desconnectat correctament del worker.\n", 39);
+        write_message(STDOUT_FILENO, "Desconnectat correctament del worker.\n");
     }
 }
 
@@ -125,7 +124,7 @@ void enviar_trama_desconnexio_gotham() {
         close(sock_fd);
         sock_fd = -1;
         connected_to_gotham = 0;
-        write(STDOUT_FILENO, "Desconnectat correctament de Gotham.\n", 37);
+        write_message(STDOUT_FILENO, "Desconnectat correctament de Gotham.\n");
     }
 }
 
@@ -144,11 +143,11 @@ int connectar_a_server(const char *ip, int port) {
 
     while (retries < MAX_RETRIES) {
         snprintf(buffer, sizeof(buffer), "Intentant connectar a %s:%d (Intent %d/%d)\n", ip, port, retries + 1, MAX_RETRIES);
-        write(STDOUT_FILENO, buffer, strlen(buffer));
+        write_message(STDERR_FILENO, buffer);
 
         sock_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (sock_fd < 0) {
-            write(STDERR_FILENO, "Error creant el socket\n", 23);
+            write_message(STDERR_FILENO, "Error creant el socket\n");
             return -1;
         }
 
@@ -158,7 +157,7 @@ int connectar_a_server(const char *ip, int port) {
         server_addr.sin_port = htons(port);
 
         if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0) {
-            write(STDERR_FILENO, "Error convertint l'adreça IP\n", 30);
+            write_message(STDERR_FILENO, "Error convertint l'adreça IP\n");
             close(sock_fd);
             return -1;
         }
@@ -166,7 +165,7 @@ int connectar_a_server(const char *ip, int port) {
         if (connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
             close(sock_fd);
             retries++;
-            write(STDERR_FILENO, "Error connectant, reintentant...\n", 33);
+            write_message(STDERR_FILENO, "Error connectant al servidor, reintentant...\n");
             sleep(1);
             continue;
         }
@@ -179,12 +178,10 @@ int connectar_a_server(const char *ip, int port) {
         setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
         snprintf(buffer, sizeof(buffer), "Connexió establerta amb %s:%d\n", ip, port);
-        write(STDOUT_FILENO, buffer, strlen(buffer));
+        write_message(STDERR_FILENO, buffer);
         return sock_fd;
     }
-
-    write(STDERR_FILENO, "Error: No s'ha pogut connectar després de múltiples intents\n", 60);
-    
+    write_message(STDERR_FILENO, "Error: No s'ha pogut connectar després de múltiples intents.\n");    
     if (sock_fd >= 0) {
         Trama trama_desconnexio;
         inicialitzar_trama(&trama_desconnexio, 0x07, config.username);
@@ -205,7 +202,7 @@ int connectar_a_server(const char *ip, int port) {
  */
 void ctrlc_handler(int sig) {
     (void)sig;  
-    write(STDOUT_FILENO, "\nTancant Fleck...\n", 18);
+    write_message(STDOUT_FILENO, "S'ha rebut Ctrl+C. Tancant Fleck...\n");
 
      if (connected_to_gotham) {
         enviar_trama_desconnexio_gotham();  
@@ -214,8 +211,7 @@ void ctrlc_handler(int sig) {
     if (worker_fd >= 0) {
         enviar_trama_desconnexio_worker();
     }
-
-    write(STDOUT_FILENO, "Fleck finalitzat correctament.\n", 32);
+    write_message(STDOUT_FILENO, "Fleck finalitzat correctament.\n");
     exit(0);
 }
 
@@ -234,19 +230,19 @@ void establir_connexio_gotham() {
 
     Trama resposta;
     if (safe_read(sock_fd, &resposta, sizeof(Trama)) < 0) {
-        write(STDOUT_FILENO, "Error rebent resposta de Gotham\n", 33);
+        write_message(STDOUT_FILENO, "Error rebent resposta de Gotham.\n");
         return;
     }
 
     if (!validar_trama(&resposta)) {
-        write(STDOUT_FILENO, "Resposta de Gotham invalida\n", 29);
+        write_message(STDOUT_FILENO, "Resposta de Gotham invàlida.\n");
         return;
     }
 
     if (resposta.type == 0x01 && resposta.data_length == 0) {
-        write(STDOUT_FILENO, "Connexió establerta amb Gotham\n", 32);
+        write_message(STDOUT_FILENO, "Connexió establerta amb Gotham.\n");
     } else if (strcmp(resposta.data, "CON_KO") == 0) {
-        write(STDOUT_FILENO, "Connexió rebutjada per Gotham\n", 30);
+        write_message(STDOUT_FILENO, "Connexió rebutjada per Gotham.\n");
     }
 }
 
@@ -271,7 +267,7 @@ void gestionar_comanda_list(const char **media_types, size_t count) {
                 if (len_file > len_ext && strcmp(file_name + len_file - len_ext, ext) == 0) {
                     int len = snprintf(buffer, sizeof(buffer), "%d. %s\n", index++, file_name);
                     if (len > 0) {
-                        write(STDOUT_FILENO, buffer, len);
+                        write_message(STDOUT_FILENO, buffer);
                     }
                     break;
                 }
@@ -280,8 +276,7 @@ void gestionar_comanda_list(const char **media_types, size_t count) {
     }
 
     if (index == 1) {
-        const char *msg = "No s'han trobat fitxers amb aquestes extensions.\n";
-        write(STDOUT_FILENO, msg, strlen(msg));
+        write_message(STDOUT_FILENO, "No s'han trobat fitxers amb aquestes extensions.\n");
     }
 
     closedir(dir);
@@ -297,33 +292,33 @@ int solicitar_nou_worker(const char *media_type, const char *file_name, char *wo
 
     // Enviar la petició a Gotham
     if (write(sock_fd, &peticio, sizeof(peticio)) != sizeof(peticio)) {
-        write(STDOUT_FILENO, "Error enviant petició a Gotham per assignar nou worker\n", 57);
+        write_message(STDOUT_FILENO, "Error enviant petició a Gotham per assignar nou worker.\n");
         return -1;
     }
 
     // Llegir la resposta de Gotham
     Trama resposta;
     if (safe_read(sock_fd, &resposta, sizeof(Trama)) < 0) {
-        write(STDOUT_FILENO, "Error rebent resposta de Gotham\n", 33);
+        write_message(STDOUT_FILENO, "Error rebent resposta de Gotham.\n");
         return -1;
     }
 
     if (!validar_trama(&resposta)) {
-        write(STDOUT_FILENO, "Resposta de Gotham invàlida\n", 30);
+        write_message(STDOUT_FILENO, "Resposta de Gotham invàlida.\n");
         return -1;
     }
 
     if (strcmp(resposta.data, "DISTORT_KO") == 0) {
-        write(STDOUT_FILENO, "Error: No hi ha workers disponibles\n", 37);
+        write_message(STDOUT_FILENO, "Error: No hi ha workers disponibles.\n");
         return -1;
     } else if (strcmp(resposta.data, "MEDIA_KO") == 0) {
-        write(STDOUT_FILENO, "Error: Tipus de media incorrecte\n", 34);
+        write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte.\n");
         return -1;
     } else {
         // Extraer IP y puerto del nuevo Worker manualmente
         char *delimiter = strchr(resposta.data, '&');
         if (!delimiter) {
-            write(STDOUT_FILENO, "Error: Resposta de Gotham invàlida\n", 37);
+            write_message(STDOUT_FILENO, "Error: Resposta de Gotham invàlida.\n");
             return -1;
         }
 
@@ -341,22 +336,22 @@ int validar_connexio_worker() {
     Trama resposta;
 
     if (safe_read(worker_fd, &resposta, sizeof(Trama)) < 0) {
-        write(STDOUT_FILENO, "[ERROR] No s'ha pogut llegir la resposta del Worker\n", 52);
+        write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut llegir la resposta del Worker\n");
         close(worker_fd);
         return -1;
     }
 
     if (resposta.type == 0x03 && resposta.data_length == 0) {
-        write(STDOUT_FILENO, "Connexió amb el worker validada\n", 34);
+        write_message(STDOUT_FILENO, "[OK] Connexió amb el worker validada.\n");
         return 0;
     }
 
     if (resposta.type == 0x03 && strcmp(resposta.data, "CON_KO") == 0) {
-        write(STDOUT_FILENO, "El worker ha rebutjat la connexió\n", 36);
+        write_message(STDOUT_FILENO, "El worker ha rebutjat la connexió.\n");
         return -1;
     }
 
-    write(STDOUT_FILENO, "Resposta inesperada del worker\n", 32);
+    write_message(STDOUT_FILENO, "[ERROR] Resposta inesperada del worker.\n");
     return -1;
 }
 
@@ -372,13 +367,15 @@ int validar_connexio_worker() {
 int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
     Trama trama;
     char data[245];
+    struct timeval timeout;
+
     off_t total_enviat = 0;
     snprintf(data, sizeof(data), "%s&%u&%s&%d", file_name, file_size, md5sum, factor);
     inicialitzar_trama(&trama, 0x03, data);
 
     // Enviar metadades del fitxer al Worker
     if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
-        write(STDOUT_FILENO, "Error enviant la informació del fitxer al worker\n", 51);
+        write_message(STDOUT_FILENO, "Error enviant la trama de informació del  fitxer al worker.\n");
         enviar_trama_desconnexio_worker();
         return -1;
     }
@@ -388,26 +385,26 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
 
     // Llegir la capçalera primer
     if (safe_read(worker_fd, &resposta_worker, sizeof(Trama)) < 0) {
-        write(STDOUT_FILENO, "[ERROR] No s'ha pogut llegir la capçalera de resposta del Worker\n", 67);
+        write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut llegir la resposta del Worker\n");
         close(worker_fd);
         return -1;
     }
 
 
     if (resposta_worker.type != 0x03) {
-        write(STDOUT_FILENO, "[ERROR] Resposta inesperada del Worker\n", 39);
+        write_message(STDOUT_FILENO, "[ERROR] Trama inesperada del Worker\n");
         close(worker_fd);
         return -1;
     }
 
     if (resposta_worker.data_length == 0) {
-        write(STDOUT_FILENO, "[OK] Connexió amb el Worker validada\n", 37);
+        write_message(STDOUT_FILENO, "[OK] Connexió amb el Worker validada.\n");
     } else if (strncmp(resposta_worker.data, "CON_KO", resposta_worker.data_length) == 0) {
-        write(STDOUT_FILENO, "[ERROR] El Worker ha rebutjat la connexió\n", 42);
+        write_message(STDOUT_FILENO, "[ERROR] El Worker ha rebutjat la connexió.\n");
         close(worker_fd);
         return -1;
     } else {
-        write(STDOUT_FILENO, "[ERROR] Resposta desconeguda del Worker\n", 40);
+        write_message(STDOUT_FILENO, "[ERROR] Resposta inesperada del Worker.\n");
         close(worker_fd);
         return -1;
     }
@@ -439,7 +436,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
     
         if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
             if (errno == ECONNRESET || errno == EPIPE) {
-                write(STDOUT_FILENO, "Worker desconnectat durant l'enviament\n", 40);
+                write_message(STDOUT_FILENO, "[FLECK] Worker desconnectat durant l'enviament.\n");
                 enviar_trama_desconnexio_worker();
     
                 // Reconnectar a un nou Worker
@@ -477,16 +474,20 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
 
     }
 
-    
+    // Eliminar timeout per esperar indefinidament CHECK_OK
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
+    setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
     Trama resposta_md5;
     if (safe_read(worker_fd, &resposta_md5, sizeof(Trama)) < 0) {
-        write(STDOUT_FILENO, "[FLECK] Error llegint confirmació del Worker\n", 46);
+        write_message(STDOUT_FILENO, "[FLECK] Error llegint confirmació del Worker.\n");
         enviar_trama_desconnexio_worker();
         return -1;
     }
 
     if (!validar_trama(&resposta_md5)) {
-        write(STDOUT_FILENO, "[FLECK] Trama de confirmació no vàlida\n", 39);
+        write_message(STDOUT_FILENO, "[FLECK] Trama de confirmació no vàlida.\n");
         enviar_trama_desconnexio_worker();
         return -1;
     }
@@ -497,14 +498,13 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
     } 
 
     if (strncmp(resposta_md5.data, "CHECK_OK", resposta_md5.data_length) != 0) {
-        write(STDOUT_FILENO, "[FLECK] El Worker ha indicat un error de recepció del fitxer\n", 60);
+        write_message(STDOUT_FILENO, "[FLECK] El Worker ha indicat un error de recepció del fitxer.\n");
         enviar_trama_desconnexio_worker();
         return -1;
     }
 
-    write(STDOUT_FILENO, "[FLECK] Worker ha rebut correctament el fitxer (CHECK_OK)\n", 58);
+    write_message(STDOUT_FILENO, "[FLECK] Worker ha rebut correctament el fitxer. (CHECK_OK)\n");
 
-    
     unregister_file(file_name);
 
     close(file_fd);
@@ -514,29 +514,48 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
 int rebre_fitxer_worker(const char *output_file, const char *media_type, const char *file_name) {
     Trama trama;
     time_t last_print = time(NULL);
+    // Desactivar timeout per esperar indefinidament la trama 0x04
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
+    setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
 
 
     // 1. Rebre trama 0x04 amb FileSize & MD5SUM
     while (1) {
         ssize_t bytes_read = safe_read(worker_fd, &trama, sizeof(trama));
-        
-        if (bytes_read == sizeof(trama)){ break;}  // Correcte, ja tenim la trama 0x04.
-        
-
-        if (bytes_read < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            time_t now = time(NULL);
-            if (now - last_print >= 10) {
-                last_print = now;
+        write_message(STDOUT_FILENO, "[DEBUG] Esperant trama 0x04 del Worker...\n");
+        if (bytes_read < 0) {
+            if (errno == EINTR) {
+                continue;  // Senyal, tornar a intentar
+            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                time_t now = time(NULL);
+                if (now - last_print >= 10) {
+                    last_print = now;
+                    write_message(STDOUT_FILENO, "[DEBUG] Encara esperant trama 0x04 del Worker...\n");
+                }
+                continue;  // Tornar a esperar.
+            } else {
+                write_message(STDERR_FILENO, "[ERROR] Error llegint del socket del Worker\n");
+                enviar_trama_desconnexio_worker();
+                return ERROR_READ;
             }
-            continue;  // Tornar a esperar.
         }
 
+        if (bytes_read == sizeof(trama)){ 
+            write_message(STDOUT_FILENO, "[DEBUG] Trama 0x04 rebuda del Worker.\n");
+            break;
+        }  // Correcte, ja tenim la trama 0x04.
+        
+
         if (bytes_read == 0 || errno == ECONNRESET || errno == EPIPE) {
-            write(STDOUT_FILENO, "[FLECK] Worker desconnectat. Sol·licitant nou Worker...\n", 58);
+            write_message(STDOUT_FILENO, "[FLECK] Worker desconnectat inesperadament.\n");
             enviar_trama_desconnexio_worker();
 
             char new_worker_ip[16];
             int new_worker_port;
+            write_message(STDOUT_FILENO, "[FLECK] Sol·licitant un nou Worker...\n");
             if (solicitar_nou_worker(media_type, file_name, new_worker_ip, &new_worker_port) < 0) {
                 return ERROR_NEW_WORKER;
             }
@@ -545,8 +564,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
             if (worker_fd < 0 || validar_connexio_worker() < 0) {
                 return ERROR_CONNECT_NEW;
             }
-
-            write(STDOUT_FILENO, "[FLECK] Nou Worker connectat. Continuant espera de la trama 0x04...\n", 68);
+            write_message(STDOUT_FILENO, "[FLECK] Nou Worker connectat. Continuant espera de la trama 0x04...\n");
             continue;  // Tornar a esperar indefinidament.
         }
 
@@ -588,13 +606,14 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
     // 3. Rebre trames 0x05 fins completar file_size
     while (total_rebut < file_size) {
         ssize_t bytes_read = safe_read(worker_fd, &trama, sizeof(trama));
+        write_message(STDOUT_FILENO, "[DEBUG] Esperant trama 0x05 del Worker...\n");
         if (bytes_read != sizeof(trama)) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
             if (errno == ECONNRESET || errno == EPIPE) {
-                write(STDOUT_FILENO, "[FLECK] Worker desconnectat. Sol·licitant nou Worker...\n", 58);
+                write_message(STDERR_FILENO, "[FLECK] Worker desconnectat inesperadament durant la recepció del fitxer.\n");
                 enviar_trama_desconnexio_worker();
-
+                write_message(STDOUT_FILENO, "[FLECK] Sol·licitant un nou Worker...\n");
                 char new_worker_ip[16];
                 int new_worker_port;
                 if (solicitar_nou_worker(media_type, file_name, new_worker_ip, &new_worker_port) < 0) {
@@ -607,8 +626,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
                     close(output_fd);
                     return ERROR_CONNECT_NEW;
                 }
-
-                write(STDOUT_FILENO, "[FLECK] Nou Worker connectat. Continuant recepció...\n", 55);
+                write_message(STDOUT_FILENO, "[FLECK] Nou Worker connectat. Continuant recepció...\n");
                 continue;
             }
 
@@ -629,7 +647,9 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         int percent = (int)((total_rebut * 100) / file_size);
         update_progress(file_name, percent);
 
+
     }
+    write_message(STDOUT_FILENO, "[DEBUG] Fitxer rebut completament del Worker.\n");
 
     close(output_fd);
 
@@ -645,10 +665,10 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
     Trama resposta_trama;
     if (strncmp(md5sum_calculat, md5sum_expected, MD5SUM_LENGTH) == 0) {
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_OK");
-        write(STDOUT_FILENO, "[FLECK] MD5SUM correcte, enviant CHECK_OK al Worker\n", 52);
+        write_message(STDOUT_FILENO, "[FLECK] MD5SUM correcte, enviant CHECK_OK al Worker.\n");
     } else {
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_KO");
-        write(STDOUT_FILENO, "[FLECK] MD5SUM incorrecte, enviant CHECK_KO al Worker\n", 54);
+        write_message(STDOUT_FILENO, "[FLECK] MD5SUM incorrecte, enviant CHECK_KO al Worker.\n");
     }
     unregister_file(file_name);
 
@@ -670,16 +690,23 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
  * @return 0 si la distorsió és correcta, -1 si hi ha un error.
  */
 int gestionar_distorsio_worker(const char *worker_ip, int worker_port, const char *file_name, int factor) {
-    write(STDOUT_FILENO, "Connectant amb el worker: ", 27);
-    write(STDOUT_FILENO, worker_ip, strlen(worker_ip));
-    write(STDOUT_FILENO, "\n", 1);
+    struct timeval timeout;
+
+    if (!worker_ip || worker_port <= 0 || !file_name || factor <= 0) {
+        write_message(STDOUT_FILENO, "Error: Paràmetres de distorsió no vàlids\n");
+        return -1;
+    }
+    
+    write_message(STDOUT_FILENO, "Connectant amb el worker: ");
+    write_message(STDOUT_FILENO, worker_ip);
+    write_message(STDOUT_FILENO, "\n");
+    
 
     worker_fd = connectar_a_server(worker_ip, worker_port);
-    write(STDOUT_FILENO, "Distorsion started!\n", 21);
 
     
     if (worker_fd < 0) {
-        write(STDOUT_FILENO, "Error connectant amb el worker\n", 31);
+        write_message(STDOUT_FILENO, "Error connectant amb el worker.\n");
         enviar_trama_desconnexio_worker();
         return -1;
     }
@@ -687,15 +714,23 @@ int gestionar_distorsio_worker(const char *worker_ip, int worker_port, const cha
     uint32_t file_size;
     char md5sum[33]; 
     if (calcular_md5(file_name, md5sum, &file_size) < 0) {
-        write(STDOUT_FILENO, "Error calculant MD5SUM\n", 23);
+        write_message(STDOUT_FILENO, "Error calculant MD5SUM.\n");
         enviar_trama_desconnexio_worker();
         return -1;
     }
+    write_message(STDOUT_FILENO, "Distorsion started!\n");
+
 
     if (enviar_fitxer_worker(file_name, file_size, md5sum, factor) < 0) {
         enviar_trama_desconnexio_worker();
         return -1;
     }
+
+    //Reactivar timeout per lectures futures (ex. 5 segons)
+    timeout.tv_sec = TIMEOUT_SECONDS;
+    timeout.tv_usec = 0;
+    setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
 
     char output_file[256];
     snprintf(output_file, sizeof(output_file), "distorted_%s", file_name);
@@ -707,14 +742,17 @@ int gestionar_distorsio_worker(const char *worker_ip, int worker_port, const cha
     enviar_trama_desconnexio_worker();  
     return 0;
 }
+
+
 void *thread_distorsio_worker(void *arg) {
     DistorsioArgs *args = (DistorsioArgs *)arg;
 
     if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
-        write(STDOUT_FILENO, "Distorsió completed successfuly\n", 34);
+        write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
     } else {
-        write(STDOUT_FILENO, "Error during distortion :(\n", 28);
+        write_message(STDOUT_FILENO, "Error during distortion :(\n");
     }
+    write_message(STDOUT_FILENO, "\n$ ");
 
     free(arg);
     return NULL;
@@ -731,7 +769,7 @@ void *thread_distorsio_worker(void *arg) {
  */
 int enviar_peticio_distorsio(const char *media_type, const char *file, int factor) {
     if (!media_type || !file) {
-        write(STDOUT_FILENO, "Error: Tipus de media o nom de fitxer no vàlid\n", 47);
+        write_message(STDOUT_FILENO, "Error: Tipus de media o nom de fitxer no vàlid.\n");
         return -1;
     }
 
@@ -742,27 +780,27 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
 
 
     if (write(sock_fd, &trama, sizeof(trama)) != sizeof(trama)) {
-        write(STDOUT_FILENO, "Error enviant la petició de distorsió\n", 41);
+        write_message(STDOUT_FILENO, "Error enviant la petició de distorsió.\n");
         return -1;
     }
 
     Trama resposta;
     if (safe_read(sock_fd, &resposta, sizeof(Trama)) < 0) {
-        write(STDOUT_FILENO, "Error rebent la resposta de Gotham\n", 36);
+        write_message(STDOUT_FILENO, "Error rebent la resposta de Gotham.\n");
         return -1;
     }
 
     if (!validar_trama(&resposta)) {
-        write(STDOUT_FILENO, "Resposta de Gotham invàlida\n", 30);
+        write_message(STDOUT_FILENO, "Resposta de Gotham invàlida.\n");
         return -1;
     }
 
     if (resposta.type == 0x10 && resposta.data_length > 0) {
         if (strcmp(resposta.data, "DISTORT_KO") == 0) {
-            write(STDOUT_FILENO, "Error: No hi ha workers disponibles\n", 37);
+            write_message(STDOUT_FILENO, "Error: No hi ha workers disponibles\n");
             return -1;
         } else if (strcmp(resposta.data, "MEDIA_KO") == 0) {
-            write(STDOUT_FILENO, "Error: Tipus de media incorrecte\n", 34);
+            write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte\n");
             return -1;
         } else {
             char worker_ip[16];
@@ -771,7 +809,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
 
             DistorsioArgs *args = malloc(sizeof(DistorsioArgs));
             if (!args) {
-                write(STDOUT_FILENO, "Error assignant memòria pel thread\n", 36);
+                write_message(STDOUT_FILENO, "Error assignant memòria pel thread\n");
                 return -1;
             }
             strncpy(args->worker_ip, worker_ip, sizeof(args->worker_ip));
@@ -781,7 +819,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
 
             pthread_t tid;
             if (pthread_create(&tid, NULL, thread_distorsio_worker, args) != 0) {
-                write(STDOUT_FILENO, "Error creant el thread per la distorsió\n", 41);
+                write_message(STDOUT_FILENO, "Error creant el thread per la distorsió\n");
                 free(args);
                 return -1;
             }
@@ -790,7 +828,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
         }
     }
 
-    write(STDOUT_FILENO, "Resposta inesperada de Gotham\n", 31);
+    write_message(STDOUT_FILENO, "Resposta inesperada de Gotham\n");
     return -1;
 }
 
@@ -807,7 +845,7 @@ void netejar_distorsions_acabades() {
         }
     }
     pthread_mutex_unlock(&status_mutex);
-    write(STDOUT_FILENO, "Distorsions acabades eliminades\n", 33);
+    write_message(STDOUT_FILENO, "Distorsions acabades eliminades\n");
 }
 
 
@@ -819,7 +857,7 @@ void netejar_distorsions_acabades() {
  */
 void gestionar_comanda_distort(char *command) {
     if (!connected_to_gotham) {
-        write(STDOUT_FILENO, "No estas connectat a Gotham\n", 29);
+        write_message(STDOUT_FILENO, "No estas connectat a Gotham\n");
         return;
     }
 
@@ -827,19 +865,19 @@ void gestionar_comanda_distort(char *command) {
     char *factor_str = strtok(NULL, " ");
 
     if (!file || !factor_str || !isdigit(factor_str[0])) {
-        write(STDOUT_FILENO, "ERROR: DISTORT <file.xxx> <factor>\n", 36);
+        write_message(STDOUT_FILENO, "ERROR: DISTORT <file.xxx> <factor>\n");
         return;
     }
 
     int factor = atoi(factor_str);
     if (factor <= 0) {
-        write(STDOUT_FILENO, "Error: Factor invalid\n", 23);
+        write_message(STDOUT_FILENO, "ERROR: Factor invalid\n");
         return;
     }
 
     char *ext = strrchr(file, '.');
     if (!ext) {
-        write(STDOUT_FILENO, "Error: El fitxer no té extensió\n", 32);
+        write_message(STDOUT_FILENO, "ERROR: El fitxer no té extensió\n");
         return;
     }
 
@@ -865,7 +903,7 @@ void gestionar_comanda_distort(char *command) {
     }
 
     if (!file_type) {
-        write(STDOUT_FILENO, "Error: Tipus de fitxer no suportat\n", 35);
+        write_message(STDOUT_FILENO, "ERROR: Tipus de fitxer no suportat\n");
         return;
     }
 
@@ -890,7 +928,7 @@ void gestionar_comandes_fleck() {
     }
 
     while (1) {
-        write(STDOUT_FILENO, "$ ", 2);
+        write_message(STDOUT_FILENO, "$ ");
         ssize_t leido = read(STDIN_FILENO, command, len - 1);
         if (leido <= 0) break;
 
@@ -927,17 +965,16 @@ void gestionar_comandes_fleck() {
                 close(sock_fd);
                 sock_fd = -1;
                 connected_to_gotham = 0;
-                const char *msg = "Thanks for using Mr. J System, see you soon, chaos lover :)\n";
-                write(STDOUT_FILENO, msg, strlen(msg));
+                write_message(STDOUT_FILENO, "Thanks for using Mr. J System, see you soon, chaos lover :)\n");
             } else {
-                write(STDOUT_FILENO, "Not connected to Mr. J System. Exiting...\n", 43);
+                write_message(STDOUT_FILENO, "Not connected to Mr. J System. Exiting...\n");
             }
         } else if (strcmp(command_upper, "CHECK STATUS") == 0) {
             print_all_progress();
         } else if (strcmp(command_upper, "CLEAR ALL") == 0) {
             netejar_distorsions_acabades();
         } else {
-            write(STDOUT_FILENO, "ERROR: Please input a valid command.\n", 38);
+            write_message(STDOUT_FILENO, "ERROR: Please input a valid command.\n");
         }
     }
 
@@ -957,7 +994,7 @@ void gestionar_comandes_fleck() {
  */
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        write(STDOUT_FILENO, "Es: ./fleck <fitxer_configuracio>\n", 35);
+        write_message(STDOUT_FILENO, "Expected: ./fleck <config file>\n");
         return 1;
     }
 
@@ -968,7 +1005,7 @@ int main(int argc, char *argv[]) {
 
     // Carregar configuració a `config`
     if (parse_fleck_config(config_fd, &config) < 0) {
-        write(STDOUT_FILENO, "Error analitzant el fitxer de configuració\n", 45);
+        write_message(STDOUT_FILENO, "ERROR: Couldn't parse the config. file\n");
         close(config_fd);
         return 1;
     }

@@ -12,6 +12,16 @@
 #include "file_utils.h"
 #include "sys_params.h"
 
+
+/**
+ * Escriu un missatge al descriptor de fitxer especificat.
+ * @param fd Descriptor de fitxer on escriure el missatge.
+ * @param message Missatge a escriure.
+ */
+void write_message(int fd, const char *message) {
+    write(fd, message, strlen(message));
+}
+
 /**
  * Calcula l'MD5SUM d'un fitxer.
  * @param file_name Nom del fitxer.
@@ -21,7 +31,7 @@
  */
 int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
     if (!file_name || !md5sum || !file_size) {
-        write(STDERR_FILENO, "Error: Paràmetres invàlids a calcular_md5\n", 42);
+        write_message(STDOUT_FILENO, "Error: Paràmetres invàlids a calcular_md5\n");
         return -1;
     }
 
@@ -86,8 +96,7 @@ ssize_t safe_read(int socket, void *buffer, size_t length) {
             if (errno == EINTR) {
                 continue;  // Senyal, tornar a intentar
             } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                const char *timeout_msg = "[ERROR] Timeout llegint del socket (EAGAIN)\n";
-                write(STDERR_FILENO, timeout_msg, strlen(timeout_msg));
+                write_message(STDERR_FILENO, "[ERROR] Timeout llegint del socket (EAGAIN)\n");
                 return -1;
             } else {
                 return -1;
@@ -95,8 +104,8 @@ ssize_t safe_read(int socket, void *buffer, size_t length) {
         } 
         
         if (bytes_read == 0) {
-            const char *disc_msg = "[INFO] Client ha tancat la connexió (EOF)\n";
-            write(STDERR_FILENO, disc_msg, strlen(disc_msg));
+            // EOF, el client ha tancat la connexió
+            write_message(STDERR_FILENO, "[INFO] Client ha tancat la connexió (EOF)\n");
             return -1;
         }
         
@@ -195,9 +204,6 @@ int validate_port(int port) {
 }
 
 
-void write_message(int fd, const char *message) {
-    write(fd, message, strlen(message));
-}
 /**
  * Analitza la configuració de Gotham.
  * @param fd Descriptor del fitxer de configuració.

@@ -30,6 +30,7 @@ int queue_front = 0, queue_rear = 0, queue_count = 0;
 pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
+volatile sig_atomic_t keep_running = 1;
 
 
 int verificar_checksum(const char *file_name, const char *received_checksum) {
@@ -255,8 +256,8 @@ error_con_ko:
 }
 
 void *worker_loop(void *arg) {
-    (void) arg;  // Evitar warnings per paràmetre no utilitzat
-    while (1) {
+    (void) arg;  
+    while (keep_running) {
         int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
             &queue_mutex, &queue_not_empty, &queue_not_full);
         int *socket_ptr = malloc(sizeof(int));
@@ -297,7 +298,7 @@ void listener_harley_principal(ConfigWorker *config) {
 
     write_message(STDOUT_FILENO, "Worker Harley principal iniciat i escoltant connexions...\n");
 
-    while (1) {
+    while (keep_running) {
         int client_socket = accept(server_fd, NULL, NULL);
         if (client_socket < 0) continue;
         
@@ -346,7 +347,7 @@ void *listener_harley_wrapper(void *arg) {
 void *gotham_listener_thread(void *arg) {
     ConfigWorker *config = (ConfigWorker *)arg;
 
-    while (1) {
+    while (keep_running) {
         Trama trama;
         if (config->base.socket_fd <= 0) {
             write_message(STDERR_FILENO, "Socket de Gotham no vàlid, intentant reconectar...\n");
@@ -403,10 +404,10 @@ void *gotham_listener_thread(void *arg) {
 }
 
 void gestionar_signal_interrupt(int sig) {
-    gestionar_signal_interrupt_worker(sig, &task_manager, &config, 
-                               shared_mem, &shared_mem_fd, "/harley_shared_mem",
-                               &task_manager.mutex, current_mem_size, &shared_mem_mutex);
+    (void)sig;
+    keep_running = 0;
 }
+
 
 /**
  * @brief Punt d'entrada principal.
@@ -451,5 +452,15 @@ int main(int argc, char *argv[]) {
 
     pthread_join(gotham_thread, NULL);
 
+    // Neteja FINAL, després del Ctrl+C
+    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
+        pthread_cancel(thread_pool[i]);      
+        pthread_join(thread_pool[i], NULL);
+    }
+
+    gestionar_signal_interrupt_worker(SIGINT, &task_manager, &config,
+                                      shared_mem, &shared_mem_fd, "/harley_shared_mem",
+                                      &task_manager.mutex, current_mem_size, &shared_mem_mutex);
+                             
     return 0;
 }

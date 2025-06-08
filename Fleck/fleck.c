@@ -958,6 +958,7 @@ void gestionar_comandes_fleck() {
                     free(cmd_copy);
                 } else {
                     pthread_detach(tid);
+                    write_message(STDOUT_FILENO, "$ ");  
                 }
             }
         } else if (strcmp(command_upper, "LOGOUT") == 0) {

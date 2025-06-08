@@ -788,13 +788,14 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte\n");
             return -1;
         } else {
+            register_new_file(file);
             char worker_ip[16];
             int worker_port;
             sscanf(resposta.data, "%15[^&]&%d", worker_ip, &worker_port);
 
             DistorsioArgs *args = malloc(sizeof(DistorsioArgs));
             if (!args) {
-                write_message(STDOUT_FILENO, "Error assignant memòria pel thread\n");
+                write_message(STDOUT_FILENO, "Error assignant memòria per gestionar_distorsio_worker.\n");
                 return -1;
             }
             strncpy(args->worker_ip, worker_ip, sizeof(args->worker_ip));
@@ -894,6 +895,7 @@ void gestionar_comanda_distort(char *command) {
     if (access(file, R_OK) != 0) {
         return;
     } 
+
     enviar_peticio_distorsio(file_type, file, factor);
 }
 

@@ -26,7 +26,7 @@ int queue_front = 0, queue_rear = 0, queue_count = 0;
 pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
-
+int keep_running = 1;
 
 
 /**
@@ -42,7 +42,7 @@ void enviar_heartbeat(int signo) {
     if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
         write_message(STDERR_FILENO, "Error enviant heartbeat a Gotham. Intentant reconnectar...\n");
 
-        if (reconnectar_gotham(&config) == 0) {
+        if (reconnectar_gotham(&config, keep_running) == 0) {
             write_message(STDOUT_FILENO, "Reconnexió exitosa. Enviant heartbeat...\n");
             write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
         } else {

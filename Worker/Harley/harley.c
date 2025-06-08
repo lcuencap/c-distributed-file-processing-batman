@@ -85,7 +85,7 @@ void enviar_heartbeat(int signo) {
     if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
         write_message(STDERR_FILENO, "Error enviant heartbeat a Gotham.\n");
         write_message(STDERR_FILENO, "Intentant reconnectar...\n");
-        if (reconnectar_gotham(&config) == 0) {
+        if (reconnectar_gotham(&config, keep_running) == 0) {
             write_message(STDOUT_FILENO, "Reconnexió amb Gotham exitosa.\n");
             write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
             alarm(10);
@@ -353,14 +353,14 @@ void *gotham_listener_thread(void *arg) {
         Trama trama;
         if (config->base.socket_fd <= 0) {
             write_message(STDERR_FILENO, "Socket de Gotham no vàlid, intentant reconectar...\n");
-            reconnectar_gotham(config);
+            reconnectar_gotham(config, keep_running);
             continue;
         }
 
         ssize_t bytes_read = read(config->base.socket_fd, &trama, sizeof(trama));
         if (bytes_read != sizeof(trama)) {
             write_message(STDERR_FILENO, "Error llegint trama de Gotham.\n");
-            if (reconnectar_gotham(config) < 0) {
+            if (reconnectar_gotham(config, keep_running) < 0) {
                 write_message(STDERR_FILENO, "No s'ha pogut reconnectar amb Gotham. Aturant el worker.\n");
                 keep_running = 0;
                 break;  

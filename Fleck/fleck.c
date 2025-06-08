@@ -921,11 +921,16 @@ void gestionar_comandes_fleck() {
 
     while (1) {
         write_message(STDOUT_FILENO, "$ ");
+        fflush(stdout);
         ssize_t leido = read(STDIN_FILENO, command, len - 1);
         if (leido <= 0) break;
 
         command[leido] = '\0';
         trim_whitespace(command);
+        if (strlen(command) == 0) {
+            continue;  
+        }
+
 
         char command_upper[BUF_INICIAL];
         strncpy(command_upper, command, sizeof(command_upper));
@@ -958,7 +963,6 @@ void gestionar_comandes_fleck() {
                     free(cmd_copy);
                 } else {
                     pthread_detach(tid);
-                    write_message(STDOUT_FILENO, "$ ");  
                 }
             }
         } else if (strcmp(command_upper, "LOGOUT") == 0) {

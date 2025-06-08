@@ -706,6 +706,7 @@ void remove_task(TaskManager *manager, int client_socket, pthread_mutex_t *mutex
 }
 
 int reconnectar_gotham(ConfigWorker *config) {
+    if (!keep_running) return -1;
     close(config->base.socket_fd);
     sleep(2);
 

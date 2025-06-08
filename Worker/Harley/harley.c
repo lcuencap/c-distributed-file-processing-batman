@@ -77,6 +77,7 @@ int processar_media(const char *file_name, int factor) {
  */
 void enviar_heartbeat(int signo) {
     (void)signo;  // Evitar warnings per paràmetre no utilitzat
+    if (!keep_running) return;
 
     Trama heartbeat_trama;
     inicialitzar_trama(&heartbeat_trama, 0x12, "Heartbeat");
@@ -87,12 +88,16 @@ void enviar_heartbeat(int signo) {
         if (reconnectar_gotham(&config) == 0) {
             write_message(STDOUT_FILENO, "Reconnexió amb Gotham exitosa.\n");
             write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
+            alarm(10);
         } else {
             write_message(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n");
+            keep_running = 0; 
+            return;            
         }
+    } else {
+        alarm(10);  
     } 
 
-    alarm(10);
 }
 
 
@@ -405,6 +410,7 @@ void *gotham_listener_thread(void *arg) {
 void gestionar_signal_interrupt(int sig) {
     (void)sig;
     keep_running = 0;
+    pthread_cond_broadcast(&queue_not_empty);  // Desbloqueja els threads del pool
 }
 
 

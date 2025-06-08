@@ -744,20 +744,6 @@ int gestionar_distorsio_worker(const char *worker_ip, int worker_port, const cha
 }
 
 
-void *thread_distorsio_worker(void *arg) {
-    DistorsioArgs *args = (DistorsioArgs *)arg;
-
-    if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
-        write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
-    } else {
-        write_message(STDOUT_FILENO, "Error during distortion :(\n");
-    }
-
-    free(arg);
-    return NULL;
-}
-
-
 
 /**
  * Envia una petició de distorsió a Gotham.
@@ -815,14 +801,13 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             args->worker_port = worker_port;
             strncpy(args->file_name, file, sizeof(args->file_name));
             args->factor = factor;
-
-            pthread_t tid;
-            if (pthread_create(&tid, NULL, thread_distorsio_worker, args) != 0) {
-                write_message(STDOUT_FILENO, "Error creant el thread per la distorsió\n");
-                free(args);
-                return -1;
+            
+            if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
+                write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
+            } else {
+                write_message(STDOUT_FILENO, "Error during distortion :(\n");
             }
-            pthread_detach(tid);
+           
             return 0;
         }
     }
@@ -913,6 +898,12 @@ void gestionar_comanda_distort(char *command) {
 }
 
 
+void *gestionar_comanda_distort_thread(void *arg) {
+    char *command = (char *)arg;
+    gestionar_comanda_distort(command);  
+    free(command);
+    return NULL;
+}
 
 /**
  * Gestió principal de comandes introduïdes per l'usuari.

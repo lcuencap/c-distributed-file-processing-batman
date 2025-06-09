@@ -37,6 +37,9 @@ static DistorsioStatus *head = NULL;
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void register_new_file(const char *file_name) {
+    char debug_buf[256];
+    snprintf(debug_buf, sizeof(debug_buf), "[DEBUG] Registrada nova distorsió: %s\n", file_name);
+    write_message(STDERR_FILENO, debug_buf);
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *new_status = malloc(sizeof(DistorsioStatus));
     if (new_status) {
@@ -505,8 +508,6 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
 
     write_message(STDOUT_FILENO, "[FLECK] Worker ha rebut correctament el fitxer. (CHECK_OK)\n");
 
-    unregister_file(file_name);
-
     close(file_fd);
     return 0;
 }
@@ -670,7 +671,6 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_KO");
         write_message(STDOUT_FILENO, "[FLECK] MD5SUM incorrecte, enviant CHECK_KO al Worker.\n");
     }
-    unregister_file(file_name);
 
 
     if (write(worker_fd, &resposta_trama, sizeof(resposta_trama)) != sizeof(resposta_trama)) {
@@ -788,7 +788,6 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte\n");
             return -1;
         } else {
-            register_new_file(file);
             char worker_ip[16];
             int worker_port;
             sscanf(resposta.data, "%15[^&]&%d", worker_ip, &worker_port);
@@ -902,6 +901,10 @@ void gestionar_comanda_distort(char *command) {
 
 void *gestionar_comanda_distort_thread(void *arg) {
     char *command = (char *)arg;
+    char *file = strtok(command + 8, " ");
+    if (file) {
+        register_new_file(file); 
+    }
     gestionar_comanda_distort(command);  
     free(command);
     return NULL;

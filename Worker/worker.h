@@ -45,7 +45,7 @@ TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, co
 // Funcions de comunicació amb Gotham
 int inicialitzar_connexio_gotham(ConfigWorker *config);
 void gestionar_desconnexio_gotham(int socket_fd, const char *workerType);
-int reconnectar_gotham(ConfigWorker *config);
+int reconnectar_gotham(ConfigWorker *config, int keep_running);
 
 // Funcions per la gestió de senyals
 void gestionar_signal_interrupt_worker(int sig, TaskManager *task_manager, ConfigWorker *config, 

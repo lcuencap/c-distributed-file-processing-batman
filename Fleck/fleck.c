@@ -744,21 +744,6 @@ int gestionar_distorsio_worker(const char *worker_ip, int worker_port, const cha
 }
 
 
-void *thread_distorsio_worker(void *arg) {
-    DistorsioArgs *args = (DistorsioArgs *)arg;
-
-    if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
-        write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
-    } else {
-        write_message(STDOUT_FILENO, "Error during distortion :(\n");
-    }
-    write_message(STDOUT_FILENO, "\n$ ");
-
-    free(arg);
-    return NULL;
-}
-
-
 
 /**
  * Envia una petició de distorsió a Gotham.
@@ -803,27 +788,27 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte\n");
             return -1;
         } else {
+            register_new_file(file);
             char worker_ip[16];
             int worker_port;
             sscanf(resposta.data, "%15[^&]&%d", worker_ip, &worker_port);
 
             DistorsioArgs *args = malloc(sizeof(DistorsioArgs));
             if (!args) {
-                write_message(STDOUT_FILENO, "Error assignant memòria pel thread\n");
+                write_message(STDOUT_FILENO, "Error assignant memòria per gestionar_distorsio_worker.\n");
                 return -1;
             }
             strncpy(args->worker_ip, worker_ip, sizeof(args->worker_ip));
             args->worker_port = worker_port;
             strncpy(args->file_name, file, sizeof(args->file_name));
             args->factor = factor;
-
-            pthread_t tid;
-            if (pthread_create(&tid, NULL, thread_distorsio_worker, args) != 0) {
-                write_message(STDOUT_FILENO, "Error creant el thread per la distorsió\n");
-                free(args);
-                return -1;
+            
+            if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
+                write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
+            } else {
+                write_message(STDOUT_FILENO, "Error during distortion :(\n");
             }
-            pthread_detach(tid);
+           
             return 0;
         }
     }
@@ -910,10 +895,17 @@ void gestionar_comanda_distort(char *command) {
     if (access(file, R_OK) != 0) {
         return;
     } 
+
     enviar_peticio_distorsio(file_type, file, factor);
 }
 
 
+void *gestionar_comanda_distort_thread(void *arg) {
+    char *command = (char *)arg;
+    gestionar_comanda_distort(command);  
+    free(command);
+    return NULL;
+}
 
 /**
  * Gestió principal de comandes introduïdes per l'usuari.
@@ -929,11 +921,16 @@ void gestionar_comandes_fleck() {
 
     while (1) {
         write_message(STDOUT_FILENO, "$ ");
+        fflush(stdout);
         ssize_t leido = read(STDIN_FILENO, command, len - 1);
         if (leido <= 0) break;
 
         command[leido] = '\0';
         trim_whitespace(command);
+        if (strlen(command) == 0) {
+            continue;  
+        }
+
 
         char command_upper[BUF_INICIAL];
         strncpy(command_upper, command, sizeof(command_upper));
@@ -956,7 +953,18 @@ void gestionar_comandes_fleck() {
             const char *extensions[] = {".txt"};
             gestionar_comanda_list(extensions, 1);
         } else if (strncasecmp(command, "DISTORT", 7) == 0) {
-            gestionar_comanda_distort(command); 
+            char *cmd_copy = strdup(command);
+            if (!cmd_copy) {
+                write_message(STDOUT_FILENO, "Error assignant memòria per la comanda\n");
+            } else {
+                pthread_t tid;
+                if (pthread_create(&tid, NULL, gestionar_comanda_distort_thread, cmd_copy) != 0) {
+                    write_message(STDOUT_FILENO, "Error creant el thread per la comanda DISTORT\n");
+                    free(cmd_copy);
+                } else {
+                    pthread_detach(tid);
+                }
+            }
         } else if (strcmp(command_upper, "LOGOUT") == 0) {
             if (connected_to_gotham) {
                 Trama trama;

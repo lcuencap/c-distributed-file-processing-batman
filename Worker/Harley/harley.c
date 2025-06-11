@@ -218,7 +218,8 @@ void *handle_task(void *arg) {
     if (detectar_desconnexio_fleck(client_socket)) {
         write_message(STDERR_FILENO, "Detectada desconnexió Fleck.\n");
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
-        finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket);
+        finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket, &task_manager,
+                                  shared_mem, current_mem_size, &shared_mem_mutex);
         return NULL;
     }
 

@@ -332,7 +332,8 @@ void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_n
                                        TaskManager *task_manager, void *shared_mem,
                                        size_t current_mem_size, pthread_mutex_t *shared_mem_mutex){
     gestionar_desconnexio_fleck(file_name, socket, shared_mem, current_mem_size, shared_mem_mutex);
-    remove_task(task_manager, socket, &task_manager->mutex);
+    remove_task(&task_manager, socket, &task_manager.mutex);
+
     free_task_metadata(metadata, shared_mem_mutex);
 }
 
@@ -652,7 +653,7 @@ void assegurar_working_directory(char *work_dir, int harley) {
     free(full_path);
 }
 
-void mark_incomplete_tasks(TaskManager *manager, ConfigWorker *config, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex) {
+void mark_incomplete_tasks(TaskManager *manager, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex) {
     pthread_mutex_lock(&manager->mutex);  
 
     Task *current = manager->head;

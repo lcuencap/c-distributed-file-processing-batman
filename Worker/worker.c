@@ -149,21 +149,21 @@ int validar_checksum(Trama *trama) {
  * @brief Gestiona la desconnexió de Fleck mentre el Worker processava la seva tasca.
  * @param file_name Nom del fitxer que s'estava processant.
  * @param client_socket Socket de Fleck.
- * @param gotham_socket Socket de Gotham.
  */
-void gestionar_desconnexio_fleck(const char *file_name, int client_socket, int gotham_socket) {
+void gestionar_desconnexio_fleck(const char *file_name, int client_socket, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *mutex) {
     char log_msg[256];
     snprintf(log_msg, sizeof(log_msg), "Fleck desconnectat inesperadament mentre es processava: %s\n", file_name);
     write_message(STDERR_FILENO, log_msg);
-
-    // Notificar a Gotham sobre la desconnexió
-    Trama trama;
-    inicialitzar_trama(&trama, 0x11, file_name);  // Tipus 0x11 indica tasca interrompuda
-    write(gotham_socket, &trama, sizeof(trama));
-
+    TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, shared_mem_size, file_name, mutex);
+    if (metadata) {
+        pthread_mutex_lock(mutex);
+        metadata->status = TASK_INTERRUPTED;
+        pthread_mutex_unlock(mutex);
+    }
     // Tancar el socket de Fleck
     close(client_socket);
 }
+
 
 /**
  * @brief Verifica si el Fleck segueix connectat.
@@ -540,13 +540,8 @@ void add_task_to_manager(TaskManager *manager, int client_socket, const char *fi
     addTask(manager, new_task);
 }
 
-void marcar_tasca_com_fallida(TaskMetadata *metadata, ConfigWorker *config) {
+void marcar_tasca_com_fallida(TaskMetadata *metadata) {
     metadata->status = TASK_FAILED;
-
-    Trama trama_error;
-    inicialitzar_trama(&trama_error, 0x11, metadata->file_name);
-    if (write(config->base.socket_fd, &trama_error, sizeof(trama_error)) != sizeof(trama_error)){
-    }
 }
 
 
@@ -655,10 +650,6 @@ void mark_incomplete_tasks(TaskManager *manager, ConfigWorker *config, void *sha
                 metadata->status = TASK_INTERRUPTED;
                 pthread_mutex_unlock(shared_mem_mutex);  
             }
-            // Notificar a Gotham
-            Trama trama_incompleta;
-            inicialitzar_trama(&trama_incompleta, 0x11, current->file_name);
-            write(config->base.socket_fd, &trama_incompleta, sizeof(trama_incompleta));
         }
         current = current->next;
     }

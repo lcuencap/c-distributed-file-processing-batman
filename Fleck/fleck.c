@@ -94,12 +94,14 @@ void print_all_progress() {
     while (curr) {
         int offset = snprintf(buffer, sizeof(buffer), "%s %d%% |", curr->file_name, curr->progress);
         int bars = curr->progress / 5;
-        for (int i = 0; i < bars && offset < (int)(sizeof(buffer) - 1); ++i) {
+        for (int i = 0; i < bars && offset < (int)(sizeof(buffer) - 2); ++i) {
             buffer[offset++] = '=';
         }
-        if (offset < (int)(sizeof(buffer) - 1)) {
-            buffer[offset++] = '\n';
+        if (offset < (int)(sizeof(buffer) - 2)) {
+            buffer[offset++] = '|';
         }
+        buffer[offset++] = '\n';
+        buffer[offset] = '\0';
         write_message(STDOUT_FILENO, buffer);
         curr = curr->next;
     }

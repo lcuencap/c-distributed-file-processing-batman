@@ -291,13 +291,16 @@ int detectar_desconnexio_fleck(int client_socket) {
         return -1;
     }
 
-    unlink(file_path);
 
     // esperar resposta 0x06 de Fleck (CHECK_OK o CHECK_KO)
     Trama resposta_trama;
     ssize_t check_read = read(client_socket, &resposta_trama, sizeof(resposta_trama));
     if (check_read != sizeof(resposta_trama)) {
         return -1;
+    }
+    
+    if (strncmp(resposta_trama.data, "CHECK_OK", resposta_trama.data_length) == 0) {
+        unlink(file_path); 
     }
 
 

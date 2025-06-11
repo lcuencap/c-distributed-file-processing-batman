@@ -180,7 +180,7 @@ void *handle_task(void *arg) {
     pthread_mutex_unlock(&shared_mem_mutex);
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0)
-        marcar_tasca_com_fallida(metadata, &config);
+        marcar_tasca_com_fallida(metadata);
 
     remove_task(&task_manager, client_socket, &task_manager.mutex);
     close(client_socket);

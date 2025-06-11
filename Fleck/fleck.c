@@ -847,7 +847,9 @@ void gestionar_comanda_distort(char *command) {
 
     char *file = strtok(command + 8, " ");
     char *factor_str = strtok(NULL, " ");
-
+    if (*file) {
+        register_new_file(file); 
+    }
     if (!file || !factor_str || !isdigit(factor_str[0])) {
         write_message(STDOUT_FILENO, "ERROR: DISTORT <file.xxx> <factor>\n");
         return;
@@ -901,10 +903,6 @@ void gestionar_comanda_distort(char *command) {
 
 void *gestionar_comanda_distort_thread(void *arg) {
     char *command = (char *)arg;
-    char *file = strtok(command + 8, " ");
-    if (file) {
-        register_new_file(file); 
-    }
     gestionar_comanda_distort(command);  
     free(command);
     return NULL;

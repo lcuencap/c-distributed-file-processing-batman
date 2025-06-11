@@ -28,6 +28,7 @@ void mark_incomplete_tasks(TaskManager *manager, ConfigWorker *config, void *sha
 int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex);
 void assegurar_working_directory(char *work_dir, int harley);
 int detectar_desconnexio_fleck(int client_socket);
+void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket);
 void gestionar_desconnexio_fleck(const char *file_name, int client_socket, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *mutex);
 int enviar_fitxer_processat(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex,
                              int gotham_socket_fd);

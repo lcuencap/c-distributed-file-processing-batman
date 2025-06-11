@@ -204,6 +204,11 @@ void *handle_task(void *arg) {
         write_message(STDERR_FILENO, "Error processant el fitxer.\n");
         goto error_con_ko;
     }
+    if (detectar_desconnexio_fleck(client_socket)) {
+        finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket);
+        return NULL;
+    }
+
     write_message(STDOUT_FILENO, "[HARLEY] Compressió finalitzada. Obrint fitxer per determinar mida...\n");
 
 

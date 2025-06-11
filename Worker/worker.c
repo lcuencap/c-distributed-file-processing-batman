@@ -298,7 +298,7 @@ int detectar_desconnexio_fleck(int client_socket) {
     if (check_read != sizeof(resposta_trama)) {
         return -1;
     }
-    
+
     if (strncmp(resposta_trama.data, "CHECK_OK", resposta_trama.data_length) == 0) {
         unlink(file_path); 
     }
@@ -327,6 +327,14 @@ void parse_trama_data(const char *data, uint32_t *file_size, char *checksum) {
     checksum[32] = '\0';
     return;
 }
+
+void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket) {
+    gestionar_desconnexio_fleck(file_name, socket, shared_mem, current_mem_size, &shared_mem_mutex);
+    remove_task(&task_manager, socket, &task_manager.mutex);
+    free_task_metadata(metadata, &shared_mem_mutex);
+}
+
+
 /**
  * @brief Gestiona la recepció d'un fitxer, el desa en local i en memòria compartida, augmentant la memòria si cal.
  * @param client_socket Descriptor del socket del client.

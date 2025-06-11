@@ -332,7 +332,8 @@ void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_n
                                        TaskManager *task_manager, void *shared_mem,
                                        size_t current_mem_size, pthread_mutex_t *shared_mem_mutex){
     gestionar_desconnexio_fleck(file_name, socket, shared_mem, current_mem_size, shared_mem_mutex);
-    remove_task(&task_manager, socket, &task_manager.mutex);
+    remove_task(task_manager, socket, &task_manager->mutex);
+
 
     free_task_metadata(metadata, shared_mem_mutex);
 }
@@ -728,7 +729,7 @@ void gestionar_signal_interrupt_worker(int sig, TaskManager *task_manager, Confi
     (void)sig;
 
     pthread_mutex_lock(task_mutex);
-    mark_incomplete_tasks(task_manager, config, shared_mem, shared_mem_size, shared_mem_mutex);
+    mark_incomplete_tasks(task_manager, shared_mem, shared_mem_size, shared_mem_mutex);
     pthread_mutex_unlock(task_mutex);
 
     gestionar_desconnexio_gotham(config->base.socket_fd, "Worker");

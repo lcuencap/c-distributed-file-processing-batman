@@ -201,7 +201,7 @@ void *handle_task(void *arg) {
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
         write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
-        return NULL
+        return NULL;
     }
     write_message(STDOUT_FILENO, "[HARLEY] Fitxer rebut correctament, iniciant compressió...\n");
     

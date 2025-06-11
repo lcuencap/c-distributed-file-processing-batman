@@ -510,6 +510,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
 
     write_message(STDOUT_FILENO, "[FLECK] Worker ha rebut correctament el fitxer. (CHECK_OK)\n");
 
+
     close(file_fd);
     return 0;
 }
@@ -678,6 +679,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
     if (write(worker_fd, &resposta_trama, sizeof(resposta_trama)) != sizeof(resposta_trama)) {
         return ERROR_READ;
     }
+
 
     return 0;
 }

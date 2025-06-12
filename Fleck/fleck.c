@@ -830,6 +830,9 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             args->worker_port = worker_port;
             strncpy(args->file_name, file, sizeof(args->file_name));
             args->factor = factor;
+            if (*file) {
+                register_new_file(file); 
+            }
             
             if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
                 write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
@@ -876,9 +879,7 @@ void gestionar_comanda_distort(char *command) {
 
     char *file = strtok(command + 8, " ");
     char *factor_str = strtok(NULL, " ");
-    if (*file) {
-        register_new_file(file); 
-    }
+    
     if (!file || !factor_str || !isdigit(factor_str[0])) {
         write_message(STDOUT_FILENO, "ERROR: DISTORT <file.xxx> <factor>\n");
         return;
@@ -925,6 +926,7 @@ void gestionar_comanda_distort(char *command) {
     if (access(file, R_OK) != 0) {
         return;
     } 
+    
 
     enviar_peticio_distorsio(file_type, file, factor);
 }

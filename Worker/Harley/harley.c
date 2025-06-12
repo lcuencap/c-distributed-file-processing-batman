@@ -369,10 +369,17 @@ void *gotham_listener_thread(void *arg) {
         if (config->base.socket_fd <= 0) {
             write_message(STDERR_FILENO, "Socket de Gotham no vàlid, intentant reconectar...\n");
             reconnectar_gotham(config, keep_running);
+            sleep(1);
             continue;
         }
 
         ssize_t bytes_read = read(config->base.socket_fd, &trama, sizeof(trama));
+        if (bytes_read < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                sleep(1);  // Evitar CPU 100%
+                continue;
+            }
+        }
         if (bytes_read != sizeof(trama)) {
             write_message(STDERR_FILENO, "Error llegint trama de Gotham.\n");
             if (reconnectar_gotham(config, keep_running) < 0) {
@@ -459,6 +466,8 @@ int main(int argc, char *argv[]) {
                                     current_mem_size, &shared_mem_mutex);    
 
     inicialitzar_connexio_gotham(&config);
+    int flags = fcntl(config.base.socket_fd, F_GETFL, 0);
+    fcntl(config.base.socket_fd, F_SETFL, flags | O_NONBLOCK);
     signal(SIGINT, (void (*)(int))gestionar_signal_interrupt);
     pthread_t thread_pool[THREAD_POOL_SIZE];
     for (int i = 0; i < THREAD_POOL_SIZE; i++) {

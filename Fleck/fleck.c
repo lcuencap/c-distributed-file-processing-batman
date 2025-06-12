@@ -52,11 +52,27 @@ void register_new_file(const char *file_name) {
     pthread_mutex_unlock(&status_mutex);
 }
 
-void update_progress(const char *file_name, int percent) {
+void update_progress_status(const char *file_name, EstatFase estat, uint32_t mida_original, uint32_t mida_distorsionat, uint32_t bytes_enviats, uint32_t bytes_rebuts) {
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *curr = head;
     while (curr) {
         if (strcmp(curr->file_name, file_name) == 0) {
+            curr->estat = estat;
+            curr->mida_original = mida_original;
+            curr->mida_distorsionat = mida_distorsionat;
+            curr->bytes_enviats = bytes_enviats;
+            curr->bytes_rebuts = bytes_rebuts;
+
+            int percent = 0;
+            if (estat == ENVIANT && mida_original > 0) {
+                percent = (bytes_enviats * 40) / mida_original;
+            } else if (estat == ESPERANT) {
+                percent = 40;
+            } else if (estat == REBENT && mida_distorsionat > 0) {
+                percent = 60 + (bytes_rebuts * 40) / mida_distorsionat;
+            } else if (estat == FINALITZAT) {
+                percent = 100;
+            }
             curr->progress = percent;
             break;
         }
@@ -64,6 +80,7 @@ void update_progress(const char *file_name, int percent) {
     }
     pthread_mutex_unlock(&status_mutex);
 }
+
 
 void unregister_file(const char *file_name) {
     pthread_mutex_lock(&status_mutex);
@@ -414,6 +431,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
         return -1;
     }
 
+
     int file_fd = open(file_name, O_RDONLY);
     if (file_fd < 0) {
         enviar_trama_desconnexio_worker();
@@ -423,6 +441,10 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
     char buffer[245];
     ssize_t bytes_read;
     off_t position = 0; // Posició actual del fitxer
+    
+    update_progress_status(file_name, ENVIANT, file_size, 0, total_enviat, 0);
+
+
 
     while (total_enviat < file_size) {
         size_t chunk_size = (size_t)(file_size - total_enviat) < sizeof(buffer) ? (size_t)(file_size - total_enviat) : sizeof(buffer);
@@ -474,9 +496,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
     
         total_enviat += bytes_read;
         position += bytes_read;
-        int percent = (int)((total_enviat * 100) / file_size);
-        update_progress(file_name, percent);
-
+        update_progress_status(file_name, ENVIANT, file_size, 0, total_enviat, 0);
     }
 
     // Eliminar timeout per esperar indefinidament CHECK_OK
@@ -507,6 +527,10 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
         enviar_trama_desconnexio_worker();
         return -1;
     }
+    
+    update_progress_status(file_name, ESPERANT, file_size, 0, total_enviat, 0);
+
+
 
     write_message(STDOUT_FILENO, "[FLECK] Worker ha rebut correctament el fitxer. (CHECK_OK)\n");
 
@@ -604,6 +628,10 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         enviar_trama_desconnexio_worker();
         return ERROR_OUTPUT_FILE;
     }
+    curr->estat = REBENT;
+    curr->mida_distorsionat = file_size; // rebut a la trama 0x04
+    curr->bytes_rebuts = 0;
+
 
     uint32_t total_rebut = 0;
 
@@ -647,11 +675,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
             return ERROR_READ;
         }
 
-        total_rebut += trama.data_length;
-        int percent = (int)((total_rebut * 100) / file_size);
-        update_progress(file_name, percent);
-
-
+        update_progress_status(file_name, REBENT, 0, file_size, 0, total_rebut);
     }
     write_message(STDOUT_FILENO, "[DEBUG] Fitxer rebut completament del Worker.\n");
 
@@ -670,8 +694,11 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
     if (strncmp(md5sum_calculat, md5sum_expected, MD5SUM_LENGTH) == 0) {
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_OK");
         write_message(STDOUT_FILENO, "[FLECK] MD5SUM correcte, enviant CHECK_OK al Worker.\n");
+        update_progress_status(file_name, FINALITZAT, 0, 0, 0, 0);
+
     } else {
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_KO");
+        unregister_file(file_name);
         write_message(STDOUT_FILENO, "[FLECK] MD5SUM incorrecte, enviant CHECK_KO al Worker.\n");
     }
 

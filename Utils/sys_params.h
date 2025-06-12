@@ -35,11 +35,19 @@ typedef struct {
     int factor;               // Factor de distorsió
 } TaskMetadata;
 
+typedef enum { ENVIANT, ESPERANT, REBENT, FINALITZAT } EstatFase;
+
 typedef struct DistorsioStatus {
     char file_name[256];
     int progress;
+    EstatFase estat;
+    uint32_t mida_original;
+    uint32_t mida_distorsionat;
+    uint32_t bytes_enviats;
+    uint32_t bytes_rebuts;
     struct DistorsioStatus *next;
 } DistorsioStatus;
+
 
 typedef struct {
     char worker_ip[16];

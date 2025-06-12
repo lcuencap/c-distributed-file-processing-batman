@@ -272,6 +272,7 @@ void *handle_task(void *arg) {
 void *worker_loop(void *arg) {
     (void) arg;  
     while (keep_running) {
+        if (!keep_running) break;
         int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
             &queue_mutex, &queue_not_empty, &queue_not_full);
         int *socket_ptr = malloc(sizeof(int));
@@ -313,6 +314,7 @@ void listener_harley_principal(ConfigWorker *config) {
     write_message(STDOUT_FILENO, "Worker Harley principal iniciat i escoltant connexions...\n");
 
     while (keep_running) {
+        if (!keep_running) break;
         int client_socket = accept(server_fd, NULL, NULL);
         if (client_socket < 0) continue;
         
@@ -362,6 +364,7 @@ void *gotham_listener_thread(void *arg) {
     ConfigWorker *config = (ConfigWorker *)arg;
 
     while (keep_running) {
+        if (!keep_running) break;
         Trama trama;
         if (config->base.socket_fd <= 0) {
             write_message(STDERR_FILENO, "Socket de Gotham no vàlid, intentant reconectar...\n");
@@ -478,6 +481,8 @@ int main(int argc, char *argv[]) {
     gestionar_signal_interrupt_worker(SIGINT, &task_manager, &config,
                                       shared_mem, &shared_mem_fd, "/harley_shared_mem",
                                       &task_manager.mutex, current_mem_size, &shared_mem_mutex);
+
+    write_message(STDOUT_FILENO, "Worker Harley finalitzat correctament.\n");                                  
                              
     return 0;
 }

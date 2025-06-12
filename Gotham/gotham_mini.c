@@ -13,12 +13,59 @@
 
 ConfigGotham config;
 pthread_t fleck_thread, worker_thread;
+pthread_t task_thread;
+pthread_t monitor_thread;
 ConfigWorker *workers = NULL;
 int num_workers = 0;
 pthread_mutex_t worker_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+
+TaskManager task_manager;     // Gestor de tasques centralitzat
+int arkham_pid;
+int log_pipe_fd[2];           // Pipe per al logger Arkham
+pthread_mutex_t arkham_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+/**
+ * Logger: registra un esdeveniment al sistema.
+ */
+void log_event(const char *event) {
+    pthread_mutex_lock(&arkham_mutex);
+    time_t now = time(NULL);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
+
+    char log_msg[512];
+    snprintf(log_msg, sizeof(log_msg), "%s %s\n", timestamp, event);
+    write(log_pipe_fd[1], log_msg, strlen(log_msg));
+    pthread_mutex_unlock(&arkham_mutex);
+}
+
+
+/**
+ * Afegeix un nou worker a la llista i estableix un worker principal si és el primer del seu tipus.
+ * @param new_worker Configuració del nou worker.
+ */
 void afegir_worker(ConfigWorker new_worker) {
     pthread_mutex_lock(&worker_mutex);
+
+    // Validar IP Fleck
+    if (!new_worker.ip_fleck) {
+        log_event("Error: Worker intentant registrar-se amb IP Fleck NULL.");
+        pthread_mutex_unlock(&worker_mutex);
+        return;
+    }
+
+    // Prevenir duplicats (mateix socket_fd)
+    for (int i = 0; i < num_workers; i++) {
+        if (workers[i].base.socket_fd == new_worker.base.socket_fd) {
+            log_event("Intent d'afegir un worker duplicat. No es permet.");
+            pthread_mutex_unlock(&worker_mutex);
+            return;
+        }
+    }
+
+    // Comprovar si ja hi ha un worker principal d'aquest tipus
     int ja_te_principal = 0;
     for (int i = 0; i < num_workers; i++) {
         if (workers[i].base.type == new_worker.base.type && workers[i].is_primary_worker) {
@@ -27,19 +74,41 @@ void afegir_worker(ConfigWorker new_worker) {
         }
     }
 
+    // Redimensionar l’array
     ConfigWorker *temp = realloc(workers, (num_workers + 1) * sizeof(ConfigWorker));
     if (!temp) {
+        log_event("Error d'allocació de memòria per a un nou worker.");
         pthread_mutex_unlock(&worker_mutex);
         return;
     }
-    
+
     workers = temp;
+
+    // Assignar i copiar dades del nou worker
     workers[num_workers] = new_worker;
-    workers[num_workers].is_primary_worker = (ja_te_principal == 0);  
+    workers[num_workers].base.ip = strdup(new_worker.base.ip);
+    workers[num_workers].ip_fleck = strdup(new_worker.ip_fleck);
+    workers[num_workers].base.port = new_worker.base.port;
+    workers[num_workers].port_fleck = new_worker.port_fleck;
+    workers[num_workers].worker_id = num_workers + 1;
+    workers[num_workers].last_heartbeat = time(NULL);
+    workers[num_workers].is_primary_worker = (ja_te_principal == 0);
+
+    // Log de confirmació
+    char log_msg[256];
+    snprintf(log_msg, sizeof(log_msg), 
+             "Worker ID: %d, Tipus: %d, IP Gotham: %s, IP Fleck: %s, Port Fleck: %d, Principal: %d",
+             workers[num_workers].worker_id, new_worker.base.type, 
+             new_worker.base.ip, new_worker.ip_fleck, new_worker.port_fleck,
+             workers[num_workers].is_primary_worker);
+    log_event(log_msg);
+
     num_workers++;
 
     pthread_mutex_unlock(&worker_mutex);
 }
+
+
 void *handle_worker(void *arg) {
     int worker_socket = *(int *)arg;
     free(arg);

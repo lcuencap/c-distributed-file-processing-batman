@@ -24,11 +24,14 @@
 // Funcions generals
 Task *get_next_task(TaskManager *manager);
 void remove_task(TaskManager *manager, int client_socket, pthread_mutex_t *mutex);
-void mark_incomplete_tasks(TaskManager *manager, ConfigWorker *config, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex);
+void mark_incomplete_tasks(TaskManager *manager, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex);
 int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex);
 void assegurar_working_directory(char *work_dir, int harley);
 int detectar_desconnexio_fleck(int client_socket);
-void gestionar_desconnexio_fleck(const char *file_name, int client_socket, int gotham_socket);
+void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket,
+                                       TaskManager *task_manager, void *shared_mem,
+                                       size_t current_mem_size, pthread_mutex_t *shared_mem_mutex);
+void gestionar_desconnexio_fleck(const char *file_name, int client_socket, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *mutex);
 int enviar_fitxer_processat(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex,
                              int gotham_socket_fd);
 int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int shared_mem_fd);
@@ -58,6 +61,6 @@ void configurar_heartbeats(void (*handler)(int));
 void enqueue_connection(int client_socket, int* connection_queue, int* queue_rear, int* queue_count, pthread_mutex_t* queue_mutex, pthread_cond_t *queue_not_empty, pthread_cond_t *queue_not_full);    
 int dequeue_connection(int* connection_queue, int* queue_front, int *queue_count, pthread_mutex_t* queue_mutex, pthread_cond_t *queue_not_empty, pthread_cond_t *queue_not_full);  
 void add_task_to_manager(TaskManager *manager, int client_socket, const char *file_name, ConfigWorker *config);
-void marcar_tasca_com_fallida(TaskMetadata *metadata, ConfigWorker *config);
+void marcar_tasca_com_fallida(TaskMetadata *metadata);
 
 #endif // WORKER_H

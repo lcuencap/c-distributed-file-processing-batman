@@ -149,21 +149,21 @@ int validar_checksum(Trama *trama) {
  * @brief Gestiona la desconnexió de Fleck mentre el Worker processava la seva tasca.
  * @param file_name Nom del fitxer que s'estava processant.
  * @param client_socket Socket de Fleck.
- * @param gotham_socket Socket de Gotham.
  */
-void gestionar_desconnexio_fleck(const char *file_name, int client_socket, int gotham_socket) {
+void gestionar_desconnexio_fleck(const char *file_name, int client_socket, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *mutex) {
     char log_msg[256];
     snprintf(log_msg, sizeof(log_msg), "Fleck desconnectat inesperadament mentre es processava: %s\n", file_name);
     write_message(STDERR_FILENO, log_msg);
-
-    // Notificar a Gotham sobre la desconnexió
-    Trama trama;
-    inicialitzar_trama(&trama, 0x11, file_name);  // Tipus 0x11 indica tasca interrompuda
-    write(gotham_socket, &trama, sizeof(trama));
-
+    TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, shared_mem_size, file_name, mutex);
+    if (metadata) {
+        pthread_mutex_lock(mutex);
+        metadata->status = TASK_INTERRUPTED;
+        pthread_mutex_unlock(mutex);
+    }
     // Tancar el socket de Fleck
     close(client_socket);
 }
+
 
 /**
  * @brief Verifica si el Fleck segueix connectat.
@@ -291,13 +291,16 @@ int detectar_desconnexio_fleck(int client_socket) {
         return -1;
     }
 
-    unlink(file_path);
 
     // esperar resposta 0x06 de Fleck (CHECK_OK o CHECK_KO)
     Trama resposta_trama;
     ssize_t check_read = read(client_socket, &resposta_trama, sizeof(resposta_trama));
     if (check_read != sizeof(resposta_trama)) {
         return -1;
+    }
+
+    if (strncmp(resposta_trama.data, "CHECK_OK", resposta_trama.data_length) == 0) {
+        unlink(file_path); 
     }
 
 
@@ -324,6 +327,19 @@ void parse_trama_data(const char *data, uint32_t *file_size, char *checksum) {
     checksum[32] = '\0';
     return;
 }
+
+void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket,
+                                       TaskManager *task_manager, void *shared_mem,
+                                       size_t current_mem_size, pthread_mutex_t *shared_mem_mutex){
+    gestionar_desconnexio_fleck(file_name, socket, shared_mem, current_mem_size, shared_mem_mutex);
+    remove_task(task_manager, socket, &task_manager->mutex);
+
+
+    free_task_metadata(metadata, shared_mem_mutex);
+}
+
+
+
 /**
  * @brief Gestiona la recepció d'un fitxer, el desa en local i en memòria compartida, augmentant la memòria si cal.
  * @param client_socket Descriptor del socket del client.
@@ -540,13 +556,8 @@ void add_task_to_manager(TaskManager *manager, int client_socket, const char *fi
     addTask(manager, new_task);
 }
 
-void marcar_tasca_com_fallida(TaskMetadata *metadata, ConfigWorker *config) {
+void marcar_tasca_com_fallida(TaskMetadata *metadata) {
     metadata->status = TASK_FAILED;
-
-    Trama trama_error;
-    inicialitzar_trama(&trama_error, 0x11, metadata->file_name);
-    if (write(config->base.socket_fd, &trama_error, sizeof(trama_error)) != sizeof(trama_error)){
-    }
 }
 
 
@@ -643,7 +654,7 @@ void assegurar_working_directory(char *work_dir, int harley) {
     free(full_path);
 }
 
-void mark_incomplete_tasks(TaskManager *manager, ConfigWorker *config, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex) {
+void mark_incomplete_tasks(TaskManager *manager, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex) {
     pthread_mutex_lock(&manager->mutex);  
 
     Task *current = manager->head;
@@ -655,10 +666,6 @@ void mark_incomplete_tasks(TaskManager *manager, ConfigWorker *config, void *sha
                 metadata->status = TASK_INTERRUPTED;
                 pthread_mutex_unlock(shared_mem_mutex);  
             }
-            // Notificar a Gotham
-            Trama trama_incompleta;
-            inicialitzar_trama(&trama_incompleta, 0x11, current->file_name);
-            write(config->base.socket_fd, &trama_incompleta, sizeof(trama_incompleta));
         }
         current = current->next;
     }
@@ -722,7 +729,7 @@ void gestionar_signal_interrupt_worker(int sig, TaskManager *task_manager, Confi
     (void)sig;
 
     pthread_mutex_lock(task_mutex);
-    mark_incomplete_tasks(task_manager, config, shared_mem, shared_mem_size, shared_mem_mutex);
+    mark_incomplete_tasks(task_manager, shared_mem, shared_mem_size, shared_mem_mutex);
     pthread_mutex_unlock(task_mutex);
 
     gestionar_desconnexio_gotham(config->base.socket_fd, "Worker");

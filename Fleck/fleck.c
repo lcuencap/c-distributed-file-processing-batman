@@ -37,6 +37,9 @@ static DistorsioStatus *head = NULL;
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void register_new_file(const char *file_name) {
+    char debug_buf[256];
+    snprintf(debug_buf, sizeof(debug_buf), "[DEBUG] Registrada nova distorsió: %s\n", file_name);
+    write_message(STDERR_FILENO, debug_buf);
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *new_status = malloc(sizeof(DistorsioStatus));
     if (new_status) {
@@ -49,11 +52,27 @@ void register_new_file(const char *file_name) {
     pthread_mutex_unlock(&status_mutex);
 }
 
-void update_progress(const char *file_name, int percent) {
+void update_progress_status(const char *file_name, EstatFase estat, uint32_t mida_original, uint32_t mida_distorsionat, uint32_t bytes_enviats, uint32_t bytes_rebuts) {
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *curr = head;
     while (curr) {
         if (strcmp(curr->file_name, file_name) == 0) {
+            curr->estat = estat;
+            curr->mida_original = mida_original;
+            curr->mida_distorsionat = mida_distorsionat;
+            curr->bytes_enviats = bytes_enviats;
+            curr->bytes_rebuts = bytes_rebuts;
+
+            int percent = 0;
+            if (estat == ENVIANT && mida_original > 0) {
+                percent = (bytes_enviats * 40) / mida_original;
+            } else if (estat == ESPERANT) {
+                percent = 40;
+            } else if (estat == REBENT && mida_distorsionat > 0) {
+                percent = 60 + (bytes_rebuts * 40) / mida_distorsionat;
+            } else if (estat == FINALITZAT) {
+                percent = 100;
+            }
             curr->progress = percent;
             break;
         }
@@ -61,6 +80,7 @@ void update_progress(const char *file_name, int percent) {
     }
     pthread_mutex_unlock(&status_mutex);
 }
+
 
 void unregister_file(const char *file_name) {
     pthread_mutex_lock(&status_mutex);
@@ -91,12 +111,14 @@ void print_all_progress() {
     while (curr) {
         int offset = snprintf(buffer, sizeof(buffer), "%s %d%% |", curr->file_name, curr->progress);
         int bars = curr->progress / 5;
-        for (int i = 0; i < bars && offset < (int)(sizeof(buffer) - 1); ++i) {
+        for (int i = 0; i < bars && offset < (int)(sizeof(buffer) - 2); ++i) {
             buffer[offset++] = '=';
         }
-        if (offset < (int)(sizeof(buffer) - 1)) {
-            buffer[offset++] = '\n';
+        if (offset < (int)(sizeof(buffer) - 2)) {
+            buffer[offset++] = '|';
         }
+        buffer[offset++] = '\n';
+        buffer[offset] = '\0';
         write_message(STDOUT_FILENO, buffer);
         curr = curr->next;
     }
@@ -409,6 +431,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
         return -1;
     }
 
+
     int file_fd = open(file_name, O_RDONLY);
     if (file_fd < 0) {
         enviar_trama_desconnexio_worker();
@@ -418,6 +441,10 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
     char buffer[245];
     ssize_t bytes_read;
     off_t position = 0; // Posició actual del fitxer
+    
+    update_progress_status(file_name, ENVIANT, file_size, 0, total_enviat, 0);
+
+
 
     while (total_enviat < file_size) {
         size_t chunk_size = (size_t)(file_size - total_enviat) < sizeof(buffer) ? (size_t)(file_size - total_enviat) : sizeof(buffer);
@@ -469,9 +496,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
     
         total_enviat += bytes_read;
         position += bytes_read;
-        int percent = (int)((total_enviat * 100) / file_size);
-        update_progress(file_name, percent);
-
+        update_progress_status(file_name, ENVIANT, file_size, 0, total_enviat, 0);
     }
 
     // Eliminar timeout per esperar indefinidament CHECK_OK
@@ -502,10 +527,13 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
         enviar_trama_desconnexio_worker();
         return -1;
     }
+    
+    update_progress_status(file_name, ESPERANT, file_size, 0, total_enviat, 0);
+
+
 
     write_message(STDOUT_FILENO, "[FLECK] Worker ha rebut correctament el fitxer. (CHECK_OK)\n");
 
-    unregister_file(file_name);
 
     close(file_fd);
     return 0;
@@ -600,6 +628,8 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         enviar_trama_desconnexio_worker();
         return ERROR_OUTPUT_FILE;
     }
+    update_progress_status(file_name, REBENT, file_size, 0, 0, 0);
+
 
     uint32_t total_rebut = 0;
 
@@ -643,11 +673,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
             return ERROR_READ;
         }
 
-        total_rebut += trama.data_length;
-        int percent = (int)((total_rebut * 100) / file_size);
-        update_progress(file_name, percent);
-
-
+        update_progress_status(file_name, REBENT, 0, file_size, 0, total_rebut);
     }
     write_message(STDOUT_FILENO, "[DEBUG] Fitxer rebut completament del Worker.\n");
 
@@ -666,16 +692,19 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
     if (strncmp(md5sum_calculat, md5sum_expected, MD5SUM_LENGTH) == 0) {
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_OK");
         write_message(STDOUT_FILENO, "[FLECK] MD5SUM correcte, enviant CHECK_OK al Worker.\n");
+        update_progress_status(file_name, FINALITZAT, 0, 0, 0, 0);
+
     } else {
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_KO");
+        unregister_file(file_name);
         write_message(STDOUT_FILENO, "[FLECK] MD5SUM incorrecte, enviant CHECK_KO al Worker.\n");
     }
-    unregister_file(file_name);
 
 
     if (write(worker_fd, &resposta_trama, sizeof(resposta_trama)) != sizeof(resposta_trama)) {
         return ERROR_READ;
     }
+
 
     return 0;
 }
@@ -788,7 +817,6 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte\n");
             return -1;
         } else {
-            register_new_file(file);
             char worker_ip[16];
             int worker_port;
             sscanf(resposta.data, "%15[^&]&%d", worker_ip, &worker_port);
@@ -802,6 +830,9 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             args->worker_port = worker_port;
             strncpy(args->file_name, file, sizeof(args->file_name));
             args->factor = factor;
+            if (*file) {
+                register_new_file(file); 
+            }
             
             if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
                 write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
@@ -848,7 +879,7 @@ void gestionar_comanda_distort(char *command) {
 
     char *file = strtok(command + 8, " ");
     char *factor_str = strtok(NULL, " ");
-
+    
     if (!file || !factor_str || !isdigit(factor_str[0])) {
         write_message(STDOUT_FILENO, "ERROR: DISTORT <file.xxx> <factor>\n");
         return;
@@ -895,6 +926,7 @@ void gestionar_comanda_distort(char *command) {
     if (access(file, R_OK) != 0) {
         return;
     } 
+    
 
     enviar_peticio_distorsio(file_type, file, factor);
 }

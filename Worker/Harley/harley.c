@@ -114,17 +114,20 @@ void *handle_task(void *arg) {
     Trama request_trama;
     if (safe_read(client_socket, &request_trama, sizeof(Trama)) < 0) {
         write_message(STDERR_FILENO, "Error: No es pot llegir la trama completa de 256 bytes\n");
-        goto error_con_ko;
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return NULL;
     }
 
     if (request_trama.data_length > sizeof(request_trama.data)) {
         write_message(STDERR_FILENO, "Error: Data_length massa gran, descartant trama\n");
-        goto error_con_ko;
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return NULL;
     }
 
     if (request_trama.type != 0x03) {
         write_message(STDERR_FILENO, "Error: Trama rebutjada per tipus incorrecte\n");
-        goto error_con_ko;
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return NULL;
     }
 
     // --------------------------- PROCESSAMENT NORMAL ---------------------------
@@ -133,7 +136,10 @@ void *handle_task(void *arg) {
     char received_checksum[MD5SUM_LENGTH] = {0};
 
     char *first_sep = strchr(request_trama.data, '&');
-    if (!first_sep) goto error_con_ko;
+    if (!first_sep){
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return NULL;
+    }
 
     size_t name_len = first_sep - request_trama.data;
     if (name_len >= sizeof(file_name)) name_len = sizeof(file_name) - 1;
@@ -141,7 +147,10 @@ void *handle_task(void *arg) {
     file_name[name_len] = '\0';
 
     char *second_sep = strchr(first_sep + 1, '&');
-    if (!second_sep) goto error_con_ko;
+    if (!second_sep) {
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return NULL;
+    }
 
     size_t size_len = second_sep - (first_sep + 1);
     if (size_len >= sizeof(file_size_str)) size_len = sizeof(file_size_str) - 1;
@@ -151,7 +160,10 @@ void *handle_task(void *arg) {
     uint32_t file_size = strtoul(file_size_str, NULL, 10);
 
     char *third_sep = strchr(second_sep + 1, '&');
-    if (!third_sep) goto error_con_ko;
+    if (!third_sep){
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return NULL;
+    }
 
     size_t checksum_len = third_sep - (second_sep + 1);
     if (checksum_len >= MD5SUM_LENGTH) checksum_len = MD5SUM_LENGTH - 1;
@@ -160,12 +172,7 @@ void *handle_task(void *arg) {
 
     int factor = atoi(third_sep + 1);
 
-    // Enviar CON_OK a Fleck
-    Trama resposta_con_ok;
-    inicialitzar_trama(&resposta_con_ok, 0x03, "");
-    if (write(client_socket, &resposta_con_ok, sizeof(resposta_con_ok)) != sizeof(resposta_con_ok)) {
-        goto error_con_ko;
-    }
+    enviar_resposta_connexio_inicial(client_socket, 1);
 
     // Buscar/crear metadata
     TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
@@ -176,7 +183,8 @@ void *handle_task(void *arg) {
                                         &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
         if (!metadata) {
             write_message(STDERR_FILENO, "Error: No s'ha pogut reservar espai per la nova tasca.\n");
-            goto error_con_ko;
+            //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+            return NULL;
         }
         strncpy(metadata->file_name, file_name, sizeof(metadata->file_name));
         metadata->total_size = file_size;
@@ -192,7 +200,8 @@ void *handle_task(void *arg) {
     write_message(STDOUT_FILENO, "[HARLEY] Iniciant recepció de fitxer...\n");
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
         write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
-        goto error_con_ko;
+        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        return NULL;
     }
     write_message(STDOUT_FILENO, "[HARLEY] Fitxer rebut correctament, iniciant compressió...\n");
     
@@ -202,8 +211,18 @@ void *handle_task(void *arg) {
     
     if (processar_media(file_name, factor) != NO_ERROR) {
         write_message(STDERR_FILENO, "Error processant el fitxer.\n");
-        goto error_con_ko;
+        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        return NULL;
     }
+
+    if (detectar_desconnexio_fleck(client_socket)) {
+        write_message(STDERR_FILENO, "Detectada desconnexió Fleck.\n");
+        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket, &task_manager,
+                                  shared_mem, current_mem_size, &shared_mem_mutex);
+        return NULL;
+    }
+
     write_message(STDOUT_FILENO, "[HARLEY] Compressió finalitzada. Obrint fitxer per determinar mida...\n");
 
 
@@ -211,13 +230,16 @@ void *handle_task(void *arg) {
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
         write_message(STDERR_FILENO, "[HARLEY] Error obrint fitxer processat. Potser no s'ha creat?\n");
-        goto error_con_ko;
+        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        return NULL;
     }
     uint32_t distorted_file_size;
     off_t size = lseek(fd, 0, SEEK_END);
     if (size == (off_t)-1) {
         close(fd);
-        goto error_con_ko;
+        write_message(STDERR_FILENO, "[HARLEY] Error al determinar la mida del fitxer processat.\n");
+        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        return NULL;  // Error al determinar la mida del fitxer
     }
     distorted_file_size = (uint32_t)size;
 
@@ -229,8 +251,8 @@ void *handle_task(void *arg) {
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
         write_message(STDERR_FILENO, "Error enviant el fitxer processat al client.\n");
-        marcar_tasca_com_fallida(metadata, &config);
-        goto error_con_ko;
+        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        return NULL;  // Error enviant el fitxer processat
     }
 
 
@@ -245,21 +267,12 @@ void *handle_task(void *arg) {
 
     
     return NULL;
-
-error_con_ko:
-    {
-        Trama resposta_con_ko;
-        inicialitzar_trama(&resposta_con_ko, 0x03, "CON_KO");
-        write(client_socket, &resposta_con_ko, sizeof(resposta_con_ko));
-
-        close(client_socket);
-        return NULL;
-    }
 }
 
 void *worker_loop(void *arg) {
     (void) arg;  
     while (keep_running) {
+        if (!keep_running) break;
         int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
             &queue_mutex, &queue_not_empty, &queue_not_full);
         int *socket_ptr = malloc(sizeof(int));
@@ -301,6 +314,7 @@ void listener_harley_principal(ConfigWorker *config) {
     write_message(STDOUT_FILENO, "Worker Harley principal iniciat i escoltant connexions...\n");
 
     while (keep_running) {
+        if (!keep_running) break;
         int client_socket = accept(server_fd, NULL, NULL);
         if (client_socket < 0) continue;
         
@@ -350,14 +364,22 @@ void *gotham_listener_thread(void *arg) {
     ConfigWorker *config = (ConfigWorker *)arg;
 
     while (keep_running) {
+        if (!keep_running) break;
         Trama trama;
         if (config->base.socket_fd <= 0) {
             write_message(STDERR_FILENO, "Socket de Gotham no vàlid, intentant reconectar...\n");
             reconnectar_gotham(config, keep_running);
+            sleep(1);
             continue;
         }
 
         ssize_t bytes_read = read(config->base.socket_fd, &trama, sizeof(trama));
+        if (bytes_read < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                sleep(1);  // Evitar CPU 100%
+                continue;
+            }
+        }
         if (bytes_read != sizeof(trama)) {
             write_message(STDERR_FILENO, "Error llegint trama de Gotham.\n");
             if (reconnectar_gotham(config, keep_running) < 0) {
@@ -444,6 +466,8 @@ int main(int argc, char *argv[]) {
                                     current_mem_size, &shared_mem_mutex);    
 
     inicialitzar_connexio_gotham(&config);
+    int flags = fcntl(config.base.socket_fd, F_GETFL, 0);
+    fcntl(config.base.socket_fd, F_SETFL, flags | O_NONBLOCK);
     signal(SIGINT, (void (*)(int))gestionar_signal_interrupt);
     pthread_t thread_pool[THREAD_POOL_SIZE];
     for (int i = 0; i < THREAD_POOL_SIZE; i++) {
@@ -466,6 +490,8 @@ int main(int argc, char *argv[]) {
     gestionar_signal_interrupt_worker(SIGINT, &task_manager, &config,
                                       shared_mem, &shared_mem_fd, "/harley_shared_mem",
                                       &task_manager.mutex, current_mem_size, &shared_mem_mutex);
+
+    write_message(STDOUT_FILENO, "Worker Harley finalitzat correctament.\n");                                  
                              
     return 0;
 }

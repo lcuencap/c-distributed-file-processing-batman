@@ -628,9 +628,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         enviar_trama_desconnexio_worker();
         return ERROR_OUTPUT_FILE;
     }
-    curr->estat = REBENT;
-    curr->mida_distorsionat = file_size; // rebut a la trama 0x04
-    curr->bytes_rebuts = 0;
+    update_progress_status(file_name, REBENT, file_size, 0, 0, 0);
 
 
     uint32_t total_rebut = 0;

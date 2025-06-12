@@ -673,8 +673,10 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
             return ERROR_READ;
         }
 
+        total_rebut += trama.data_length;
         update_progress_status(file_name, REBENT, 0, file_size, 0, total_rebut);
     }
+
     write_message(STDOUT_FILENO, "[DEBUG] Fitxer rebut completament del Worker.\n");
 
     close(output_fd);
@@ -833,7 +835,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             if (*file) {
                 register_new_file(file); 
             }
-            
+
             if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
                 write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
             } else {

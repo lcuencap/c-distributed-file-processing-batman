@@ -41,7 +41,24 @@ void log_event(const char *event) {
     pthread_mutex_unlock(&arkham_mutex);
 }
 
+/*
+* Envia una trama d'error quan es rebutja una trama per format o checksum incorrecte.
+* Aquesta funció registra l'esdeveniment i envia una resposta al socket especificat.    
+* @param socket_fd El descriptor de fitxer del socket on enviar la resposta.
+* @param origen Opcional: cadena que indica l'origen de la trama rebutjada.
+*/
 
+void respondre_trama_erronia(int socket_fd, const char *origen) {
+    if (origen) {
+        char log_msg[128];
+        snprintf(log_msg, sizeof(log_msg), "Trama rebutjada de %s per format o checksum incorrecte.", origen);
+        log_event(log_msg);
+    }
+
+    Trama resposta;
+    inicialitzar_trama(&resposta, 0x09, "");
+    write(socket_fd, &resposta, sizeof(resposta));
+}
 
 /**
  * Consulta qui és el principal (si n’hi ha). No el canvia.
@@ -265,6 +282,11 @@ void *handle_worker(void *arg) {
     Trama trama;
 
     while (read(worker_socket, &trama, sizeof(trama)) == sizeof(trama)) {
+        if (!validar_trama(&trama)) {
+            respondre_trama_erronia(client_socket, "Worker");
+            continue;
+        }
+
         if (trama.type == 0x02) {
             char *workerType = strtok(trama.data, "&");
             char *workerIP = strtok(NULL, "&");
@@ -477,7 +499,10 @@ void *gestionar_client_fleck(void *arg) {
 
     Trama trama;
     while (read(client_socket, &trama, sizeof(trama)) == sizeof(trama)) {
-
+        if (!validar_trama(&trama)) {
+            respondre_trama_erronia(client_socket, "Fleck");
+            continue;
+        }
         if (trama.type == 0x01) {
             Trama resposta;
             inicialitzar_trama(&resposta, 0x01, "");

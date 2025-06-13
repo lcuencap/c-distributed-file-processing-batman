@@ -42,6 +42,7 @@ void log_event(const char *event) {
 }
 
 
+
 /**
  * Consulta qui és el principal (si n’hi ha). No el canvia.
  * @param tipus_worker Tipus de worker a buscar (ENIGMA o HARLEY).
@@ -412,6 +413,64 @@ void *listener_worker(void *arg) {
     return NULL;
 }
 
+/**
+ * Valida si el fitxer té una extensió vàlida per al tipus indicat.
+ * Retorna 1 si és vàlid, 0 si no. Escriu el tipus corresponent a tipus_worker.
+ * @param mediaType Tipus de media ("media" o "text").
+ * @param fileName Nom del fitxer a validar.
+ * @param tipus_worker Punter a la variable on es guardarà el tipus de worker (HARLEY o ENIGMA).
+ * @return Retorna 1 si el fitxer és vàlid, 0 si no.
+ */
+int validar_tipus_fitxer(const char *mediaType, const char *fileName, int *tipus_worker) {
+    if (!mediaType || !fileName || !tipus_worker) return 0;
+
+    char *ext = strrchr(fileName, '.');
+    if (!ext) return 0;
+
+    if (strcmp(mediaType, "media") == 0) {
+        const char *media_exts[] = {".wav", ".mp3", ".jpg", ".png"};
+        for (size_t i = 0; i < sizeof(media_exts)/sizeof(media_exts[0]); i++) {
+            if (strcasecmp(ext, media_exts[i]) == 0) {
+                *tipus_worker = HARLEY;
+                return 1;
+            }
+        }
+    } else if (strcmp(mediaType, "text") == 0) {
+        if (strcasecmp(ext, ".txt") == 0) {
+            *tipus_worker = ENIGMA;
+            return 1;
+        }
+    }
+
+    return 0;  // No és vàlid
+}
+
+/**
+ * Retorna un worker del tipus donat que no sigui el principal (alternatiu).
+ * @param tipus_worker Tipus de worker (ENIGMA o HARLEY).
+ * @return Punter al worker alternatiu, o NULL si no n’hi ha cap.
+ */
+ConfigWorker* buscar_alternatiu_no_principal(int tipus_worker) {
+    for (int i = 0; i < num_workers; i++) {
+        if (workers[i].base.type == tipus_worker && !workers[i].is_primary_worker) {
+            return &workers[i];
+        }
+    }
+    return NULL;
+}
+
+
+/**
+ * Genera una cadena amb format "<ip>&<port>" a partir d’un worker.
+ * @param worker Punter al ConfigWorker.
+ * @param buffer Destí on s’escriurà la cadena (ha de tenir almenys 64 bytes).
+ */
+void construir_data_worker(const ConfigWorker *worker, char *buffer) {
+    if (worker && buffer) {
+        snprintf(buffer, 64, "%s&%d", worker->ip_fleck, worker->port_fleck);
+    }
+}
+
 void *gestionar_client_fleck(void *arg) {
     int client_socket = *(int *)arg;
     free(arg);  // Liberar la memoria del socket pasado por puntero
@@ -448,27 +507,8 @@ void *gestionar_client_fleck(void *arg) {
             }
 
             // Verifica que l'extensió del fitxer coincideixi amb el tipus de media
-            char *ext = strrchr(fileName, '.');
-            if (!ext) {
-                inicialitzar_trama(&resposta, 0x10, "MEDIA_KO");
-                write(client_socket, &resposta, sizeof(resposta));
-                continue;
-            }
-
-            int tipus_correcte = 0;
-            if (strcmp(mediaType, "media") == 0) {
-                const char *media_exts[] = {".wav", ".mp3", ".jpg", ".png"};
-                for (size_t i = 0; i < sizeof(media_exts)/sizeof(media_exts[0]); i++) {
-                    if (strcasecmp(ext, media_exts[i]) == 0) {
-                        tipus_correcte = 1;
-                        break;
-                    }
-                }
-            } else if (strcmp(mediaType, "text") == 0) {
-                if (strcasecmp(ext, ".txt") == 0) tipus_correcte = 1;
-            }
-
-            if (!tipus_correcte) {
+            int tipus_worker;
+            if (!validar_tipus_fitxer(mediaType, fileName, &tipus_worker)) {
                 inicialitzar_trama(&resposta, 0x10, "MEDIA_KO");
                 write(client_socket, &resposta, sizeof(resposta));
                 continue;
@@ -487,14 +527,14 @@ void *gestionar_client_fleck(void *arg) {
 
             if (principal) {
                 char resposta_data[64];
-                snprintf(resposta_data, sizeof(resposta_data), "%s&%d", principal->ip_fleck, principal->port_fleck);
+                construir_data_worker(principal, resposta_data);
                 inicialitzar_trama(&resposta, 0x10, resposta_data);
             } else {
                 inicialitzar_trama(&resposta, 0x10, "DISTORT_KO");
             }
             write(client_socket, &resposta, sizeof(resposta));
 
-        }else if (trama.type == 0x11) {
+        } else if (trama.type == 0x11) {
             char *mediaType = strtok(trama.data, "&");
             char *fileName = strtok(NULL, "&");
 
@@ -507,48 +547,18 @@ void *gestionar_client_fleck(void *arg) {
             }
 
             // Verificació extensió
-            char *ext = strrchr(fileName, '.');
-            if (!ext) {
+            int tipus_worker;
+            if (!validar_tipus_fitxer(mediaType, fileName, &tipus_worker)) {
                 inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
                 write(client_socket, &resposta, sizeof(resposta));
                 continue;
             }
 
-            int tipus_correcte = 0;
-            int tipus_worker = -1;
-            if (strcmp(mediaType, "media") == 0) {
-                const char *media_exts[] = {".wav", ".mp3", ".jpg", ".png"};
-                for (size_t i = 0; i < sizeof(media_exts)/sizeof(media_exts[0]); i++) {
-                    if (strcasecmp(ext, media_exts[i]) == 0) {
-                        tipus_correcte = 1;
-                        tipus_worker = HARLEY;
-                        break;
-                    }
-                }
-            } else if (strcmp(mediaType, "text") == 0) {
-                if (strcasecmp(ext, ".txt") == 0) {
-                    tipus_correcte = 1;
-                    tipus_worker = ENIGMA;
-                }
-            }
-
-            if (!tipus_correcte) {
-                inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
-                write(client_socket, &resposta, sizeof(resposta));
-                continue;
-            }
 
             pthread_mutex_lock(&worker_mutex);
             ConfigWorker *principal = obtenir_principal(tipus_worker);
-            ConfigWorker *alternatiu = NULL;
+            ConfigWorker *alternatiu = buscar_alternatiu_no_principal(tipus_worker);
 
-            for (int i = 0; i < num_workers; i++) {
-                if (workers[i].base.type == tipus_worker &&
-                    &workers[i] != principal) {
-                    alternatiu = &workers[i];
-                    break;
-                }
-            }
 
             pthread_mutex_unlock(&worker_mutex);
 
@@ -561,6 +571,16 @@ void *gestionar_client_fleck(void *arg) {
             }
 
             write(client_socket, &resposta, sizeof(resposta));
+        } else {
+            // Tipus desconegut de trama
+            char missatge[64];
+            snprintf(missatge, sizeof(missatge), "Trama desconeguda rebuda de Fleck: 0x%02X\n", trama.type);
+            write_message(STDOUT_FILENO, missatge);
+            log_event(missatge);
+
+            Trama resposta_error;
+            inicialitzar_trama(&resposta_error, 0x09, "");
+            write(client_socket, &resposta_error, sizeof(resposta_error));
         }
     }
 

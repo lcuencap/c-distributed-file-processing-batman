@@ -1,6 +1,7 @@
 #include "trames.h"
 
 
+
 // Funció auxiliar per enviar resposta CON_OK o CON_KO
 void enviar_resposta_connexio_inicial(int socket_fd, int correcte) {
     Trama resposta;

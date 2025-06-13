@@ -65,7 +65,7 @@ void respondre_trama_erronia(int socket_fd, const char *origen) {
  * @param tipus_worker Tipus de worker a buscar (ENIGMA o HARLEY).
  * @return Retorna un punter al worker principal, o NULL si no n'hi ha cap.
  */
-ConfigWorker* obtenir_principal(int tipus_worker) {
+ConfigWorker* obtenir_principal(InstanceType tipus_worker) {
     for (int i = 0; i < num_workers; i++) {
         if (workers[i].base.type == tipus_worker && workers[i].is_primary_worker) {
             return &workers[i];
@@ -74,7 +74,7 @@ ConfigWorker* obtenir_principal(int tipus_worker) {
     return NULL;
 }
 
-ConfigWorker* seleccionar_nou_principal(int tipus_worker) {
+ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
     pthread_mutex_lock(&worker_mutex);
 
     // Comptar candidats
@@ -283,7 +283,7 @@ void *handle_worker(void *arg) {
 
     while (read(worker_socket, &trama, sizeof(trama)) == sizeof(trama)) {
         if (!validar_trama(&trama)) {
-            respondre_trama_erronia(client_socket, "Worker");
+            respondre_trama_erronia(worker_socket, "Worker");
             continue;
         }
 
@@ -334,10 +334,10 @@ void *handle_worker(void *arg) {
             write(worker_socket, &resposta, sizeof(resposta));
 
             // Mensaje registro
-            int len2 = snprintf(NULL, 0, "Worker registrat: %s:%d (type: %s)\n", workerIP, worker.port_fleck, workerType) + 1;
+            int len2 = snprintf(NULL, 0, "Worker registrat: %s:%d (type: %s)\n", workerIP, new_worker.port_fleck, workerType) + 1;
             char *msg2 = malloc(len2);
             if (msg2) {
-                snprintf(msg2, len2, "Worker registrat: %s:%d (type: %s)\n", workerIP, worker.port_fleck, workerType);
+                snprintf(msg2, len2, "Worker registrat: %s:%d (type: %s)\n", workerIP, new_worker.port_fleck, workerType);
                 write_message(STDOUT_FILENO, msg2);
                 free(msg2);
             }

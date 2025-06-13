@@ -43,9 +43,9 @@ void log_event(const char *event) {
 
 
 /**
- * Selecciona un nou worker principal del mateix tipus si el principal actual es desconnecta.
+ * Consulta qui és el principal (si n’hi ha). No el canvia.
  * @param tipus_worker Tipus de worker a buscar (ENIGMA o HARLEY).
- * @return Retorna un punter al nou worker seleccionat com a principal, o NULL si no n'hi ha cap.
+ * @return Retorna un punter al worker principal, o NULL si no n'hi ha cap.
  */
 ConfigWorker* obtenir_principal(int tipus_worker) {
     for (int i = 0; i < num_workers; i++) {
@@ -55,6 +55,51 @@ ConfigWorker* obtenir_principal(int tipus_worker) {
     }
     return NULL;
 }
+
+ConfigWorker* seleccionar_nou_principal(int tipus_worker) {
+    pthread_mutex_lock(&worker_mutex);
+
+    // Comptar candidats
+    int total = 0;
+    for (int i = 0; i < num_workers; i++) {
+        if (workers[i].base.type == tipus_worker && !workers[i].is_primary_worker) {
+            total++;
+        }
+    }
+
+    if (total == 0) {
+        pthread_mutex_unlock(&worker_mutex);
+        return NULL;
+    }
+
+    // Crear llista d’índexs
+    int *indexos = malloc(total * sizeof(int));
+    int pos = 0;
+    for (int i = 0; i < num_workers; i++) {
+        if (workers[i].base.type == tipus_worker && !workers[i].is_primary_worker) {
+            indexos[pos++] = i;
+        }
+    }
+
+    int sel = indexos[rand() % total];
+    free(indexos);
+
+    workers[sel].is_primary_worker = 1;
+
+    Trama promotora;
+    inicialitzar_trama(&promotora, 0x08, "");
+    write(workers[sel].base.socket_fd, &promotora, sizeof(promotora));
+
+    char log_msg[128];
+    snprintf(log_msg, sizeof(log_msg),
+             "Worker ID %d seleccionat com a nou principal del tipus %d.",
+             workers[sel].worker_id, tipus_worker);
+    log_event(log_msg);
+
+    pthread_mutex_unlock(&worker_mutex);
+    return &workers[sel];
+}
+
 
 /**
  * elimina un worker de la llista de workers.
@@ -449,8 +494,74 @@ void *gestionar_client_fleck(void *arg) {
             }
             write(client_socket, &resposta, sizeof(resposta));
 
-        }
+        }else if (trama.type == 0x11) {
+            char *mediaType = strtok(trama.data, "&");
+            char *fileName = strtok(NULL, "&");
 
+            Trama resposta;
+
+            if (!mediaType || !fileName) {
+                inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
+                write(client_socket, &resposta, sizeof(resposta));
+                continue;
+            }
+
+            // Verificació extensió
+            char *ext = strrchr(fileName, '.');
+            if (!ext) {
+                inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
+                write(client_socket, &resposta, sizeof(resposta));
+                continue;
+            }
+
+            int tipus_correcte = 0;
+            int tipus_worker = -1;
+            if (strcmp(mediaType, "media") == 0) {
+                const char *media_exts[] = {".wav", ".mp3", ".jpg", ".png"};
+                for (size_t i = 0; i < sizeof(media_exts)/sizeof(media_exts[0]); i++) {
+                    if (strcasecmp(ext, media_exts[i]) == 0) {
+                        tipus_correcte = 1;
+                        tipus_worker = HARLEY;
+                        break;
+                    }
+                }
+            } else if (strcmp(mediaType, "text") == 0) {
+                if (strcasecmp(ext, ".txt") == 0) {
+                    tipus_correcte = 1;
+                    tipus_worker = ENIGMA;
+                }
+            }
+
+            if (!tipus_correcte) {
+                inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
+                write(client_socket, &resposta, sizeof(resposta));
+                continue;
+            }
+
+            pthread_mutex_lock(&worker_mutex);
+            ConfigWorker *principal = obtenir_principal(tipus_worker);
+            ConfigWorker *alternatiu = NULL;
+
+            for (int i = 0; i < num_workers; i++) {
+                if (workers[i].base.type == tipus_worker &&
+                    &workers[i] != principal) {
+                    alternatiu = &workers[i];
+                    break;
+                }
+            }
+
+            pthread_mutex_unlock(&worker_mutex);
+
+            if (alternatiu) {
+                char resposta_data[64];
+                snprintf(resposta_data, sizeof(resposta_data), "%s&%d", alternatiu->ip_fleck, alternatiu->port_fleck);
+                inicialitzar_trama(&resposta, 0x11, resposta_data);
+            } else {
+                inicialitzar_trama(&resposta, 0x11, "DISTORT_KO");
+            }
+
+            write(client_socket, &resposta, sizeof(resposta));
+        }
     }
 
     close(client_socket);

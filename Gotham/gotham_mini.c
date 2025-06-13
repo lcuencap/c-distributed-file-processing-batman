@@ -472,7 +472,7 @@ int validar_tipus_fitxer(const char *mediaType, const char *fileName, int *tipus
  * @param tipus_worker Tipus de worker (ENIGMA o HARLEY).
  * @return Punter al worker alternatiu, o NULL si no n’hi ha cap.
  */
-ConfigWorker* buscar_alternatiu_no_principal(int tipus_worker) {
+ConfigWorker* buscar_alternatiu_no_principal(InstanceType tipus_worker) {
     for (int i = 0; i < num_workers; i++) {
         if (workers[i].base.type == tipus_worker && !workers[i].is_primary_worker) {
             return &workers[i];
@@ -581,9 +581,8 @@ void *gestionar_client_fleck(void *arg) {
 
 
             pthread_mutex_lock(&worker_mutex);
-            ConfigWorker *principal = obtenir_principal(tipus_worker);
+            
             ConfigWorker *alternatiu = buscar_alternatiu_no_principal(tipus_worker);
-
 
             pthread_mutex_unlock(&worker_mutex);
 

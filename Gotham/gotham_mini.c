@@ -97,7 +97,43 @@ void eliminar_worker_per_socket(int socket_fd) {
 
     pthread_mutex_unlock(&worker_mutex);
 }
-    
+
+void *monitoritzar_heartbeats(void *arg) {
+    (void)arg;
+
+    const int TIMEOUT = 15;  // segons
+
+    while (1) {
+        pthread_mutex_lock(&worker_mutex);
+        time_t ara = time(NULL);
+
+        for (int i = 0; i < num_workers; i++) {
+            double diff = difftime(ara, workers[i].last_heartbeat);
+            if (diff > TIMEOUT) {
+                char log_msg[128];
+                snprintf(log_msg, sizeof(log_msg),
+                         "Worker ID %d ha superat el timeout de %ds. Eliminant-lo.",
+                         workers[i].worker_id, TIMEOUT);
+                log_event(log_msg);
+
+                int socket_fd = workers[i].base.socket_fd;
+
+                pthread_mutex_unlock(&worker_mutex);  // Alliberem abans d’eliminar
+                eliminar_worker_per_socket(socket_fd);
+                pthread_mutex_lock(&worker_mutex);    // Tornem a bloquejar
+
+                i = -1;  // Reiniciem l’iteració perquè la llista ha canviat
+                break;
+            }
+        }
+
+        pthread_mutex_unlock(&worker_mutex);
+        sleep(5);  // Interval entre comprovacions
+    }
+
+    return NULL;
+}
+
 
 /**
  * Afegeix un nou worker a la llista i estableix un worker principal si és el primer del seu tipus.
@@ -149,7 +185,17 @@ void afegir_worker(ConfigWorker new_worker) {
     workers[num_workers].port_fleck = new_worker.port_fleck;
     workers[num_workers].worker_id = num_workers + 1;
     workers[num_workers].last_heartbeat = time(NULL);
-    workers[num_workers].is_primary_worker = (ja_te_principal == 0);
+    if (ja_te_principal == 0) {
+        // Si no hi ha cap principal, aquest serà el nou principal
+        workers[num_workers].is_primary_worker = 1;
+        Trama promotora;
+        inicialitzar_trama(&promotora, 0x08, "");
+        write(workers[num_workers].base.socket_fd, &promotora, sizeof(promotora));
+        log_event("Trama 0x08 enviada al primer worker com a principal.");
+    } else {
+        // Si ja hi ha un principal, aquest no ho serà
+        workers[num_workers].is_primary_worker = 0;
+    }
 
     // Log de confirmació
     char log_msg[256];
@@ -178,43 +224,34 @@ void *handle_worker(void *arg) {
             char *workerIP = strtok(NULL, "&");
             char *workerPortStr = strtok(NULL, "&");
 
-            if (!workerType || !workerIP || !workerPortStr) {
-                write_message(STDOUT_FILENO, "Trama de worker mal formada.\n");
+            if (!workerType || strlen(workerType) == 0 ||
+                !workerIP || strlen(workerIP) == 0 ||
+                !workerPortStr || strlen(workerPortStr) == 0 ||
+                atoi(workerPortStr) <= 0) {
+                
+                write_message(STDOUT_FILENO, "Trama de worker mal formada o amb camps buits.\n");
+
+                Trama resposta;
+                inicialitzar_trama(&resposta, 0x02, "CON_KO");
+                write(worker_socket, &resposta, sizeof(resposta));
+
                 close(worker_socket);
                 continue;
             }
 
-            ConfigWorker worker;
-            worker.base.socket_fd = worker_socket;
-            worker.base.ip = strdup(config.base.ip);
-            worker.base.port = config.base.port;
-            worker.ip_fleck = strdup(workerIP);
-            worker.port_fleck = atoi(workerPortStr);
-            worker.base.type = (strcasecmp(workerType, "TEXT") == 0) ? ENIGMA : HARLEY;
+            ConfigWorker new_worker;
+            new_worker.base.socket_fd = worker_socket;
+            new_worker.base.ip = strdup(config.base.ip);  // IP de Gotham
+            new_worker.base.port = config.base.port;
+            new_worker.ip_fleck = strdup(workerIP);
+            new_worker.port_fleck = atoi(workerPortStr);
+            new_worker.base.type = (strcasecmp(workerType, "TEXT") == 0) ? ENIGMA : HARLEY;
 
-            int ha_de_ser_principal = 1;
-            pthread_mutex_lock(&worker_mutex);
-            for (int i = 0; i < num_workers; i++) {
-                if (workers[i].base.type == worker.base.type && workers[i].is_primary_worker) {
-                    ha_de_ser_principal = 0;
-                    break;
-                }
-            }
-            worker.is_primary_worker = ha_de_ser_principal;
+            afegir_worker(new_worker);
 
-            ConfigWorker *temp = realloc(workers, (num_workers + 1) * sizeof(ConfigWorker));
-            if (!temp) {
-                pthread_mutex_unlock(&worker_mutex);
-                close(worker_socket);
-                return NULL;
-            }
-            workers = temp;
-            workers[num_workers] = worker;
-            num_workers++;
-            pthread_mutex_unlock(&worker_mutex);
 
             // Mensaje tipo
-            const char *tipus = (worker.base.type == ENIGMA) ? "ENIGMA" : "HARLEY";
+            const char *tipus = (new_worker.base.type == ENIGMA) ? "ENIGMA" : "HARLEY";
             int len1 = snprintf(NULL, 0, "Worker registrat com a tipus: %s\n", tipus) + 1;
             char *msg1 = malloc(len1);
             if (msg1) {
@@ -236,15 +273,6 @@ void *handle_worker(void *arg) {
                 write_message(STDOUT_FILENO, msg2);
                 free(msg2);
             }
-
-            // Promocionar a principal
-            if (worker.is_primary_worker) {
-                Trama promotora;
-                inicialitzar_trama(&promotora, 0x08, "");
-                write(worker_socket, &promotora, sizeof(promotora));
-                write_message(STDOUT_FILENO, "Trama 0x08 enviada al worker per promoure'l a principal\n");
-            }
-
         } else if (trama.type == 0x07) {
             int len3 = snprintf(NULL, 0, "Worker %s desconnectat\n", trama.data) + 1;
             char *msg3 = malloc(len3);
@@ -263,9 +291,8 @@ void *handle_worker(void *arg) {
                 write_message(STDOUT_FILENO, msg4);
                 free(msg4);
             }
-
-            // Aquí se puede añadir la lógica de eliminarlo y reasignar nou principal
-
+            log_event("Trama 0x07 rebuda: worker sol·licita desconnexió.");
+            eliminar_worker_per_socket(worker_socket);
         } else if (trama.type == 0x12) {
             int len5 = snprintf(NULL, 0, "Worker %s ha enviat un heartbeat\n", trama.data) + 1;
             char *msg5 = malloc(len5);
@@ -402,22 +429,20 @@ void *gestionar_client_fleck(void *arg) {
                 continue;
             }
 
-            // Buscar un worker disponible del tipus sol·licitat
+           // Buscar el worker principal del tipus sol·licitat
             pthread_mutex_lock(&worker_mutex);
-            ConfigWorker *found = NULL;
-            for (int i = 0; i < num_workers; i++) {
-                int tipus_worker = workers[i].base.type;
-                if ((strcmp(mediaType, "media") == 0 && tipus_worker == HARLEY) ||
-                    (strcmp(mediaType, "text") == 0 && tipus_worker == ENIGMA)) {
-                    found = &workers[i];
-                    break;
-                }
+            ConfigWorker *principal = NULL;
+
+            if (strcmp(mediaType, "media") == 0) {
+                principal = obtenir_principal(HARLEY);
+            } else if (strcmp(mediaType, "text") == 0) {
+                principal = obtenir_principal(ENIGMA);
             }
             pthread_mutex_unlock(&worker_mutex);
 
-            if (found) {
+            if (principal) {
                 char resposta_data[64];
-                snprintf(resposta_data, sizeof(resposta_data), "%s&%d", found->ip_fleck, found->port_fleck);
+                snprintf(resposta_data, sizeof(resposta_data), "%s&%d", principal->ip_fleck, principal->port_fleck);
                 inicialitzar_trama(&resposta, 0x10, resposta_data);
             } else {
                 inicialitzar_trama(&resposta, 0x10, "DISTORT_KO");
@@ -489,6 +514,8 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, exit);
     pthread_create(&fleck_thread, NULL, listener_fleck, NULL);
     pthread_create(&worker_thread, NULL, listener_worker, NULL);
+    pthread_create(&monitor_thread, NULL, monitoritzar_heartbeats, NULL);
+
 
     pthread_join(fleck_thread, NULL);
     pthread_join(worker_thread, NULL);

@@ -43,6 +43,63 @@ void log_event(const char *event) {
 
 
 /**
+ * Selecciona un nou worker principal del mateix tipus si el principal actual es desconnecta.
+ * @param tipus_worker Tipus de worker a buscar (ENIGMA o HARLEY).
+ * @return Retorna un punter al nou worker seleccionat com a principal, o NULL si no n'hi ha cap.
+ */
+ConfigWorker* obtenir_principal(int tipus_worker) {
+    for (int i = 0; i < num_workers; i++) {
+        if (workers[i].base.type == tipus_worker && workers[i].is_primary_worker) {
+            return &workers[i];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * elimina un worker de la llista de workers.
+ * @param socket_fd Socket del worker a eliminar.   
+ * @return Retorna 1 si s'ha eliminat correctament, 0 si no s'ha trobat el worker.
+ */
+
+void eliminar_worker_per_socket(int socket_fd) {
+    pthread_mutex_lock(&worker_mutex);
+
+    for (int i = 0; i < num_workers; i++) {
+        if (workers[i].base.socket_fd == socket_fd) {
+            int tipus_worker = workers[i].base.type;
+            int era_principal = workers[i].is_primary_worker;
+
+            free(workers[i].base.ip);
+            free(workers[i].ip_fleck);
+
+            for (int j = i; j < num_workers - 1; j++) {
+                workers[j] = workers[j + 1];
+            }
+
+            num_workers--;
+            workers = realloc(workers, num_workers * sizeof(ConfigWorker));
+            if (workers == NULL && num_workers > 0) {
+                log_event("Error real·locant memòria en eliminar worker.");
+            }
+
+            // Reassignar si cal
+            if (era_principal) {
+                ConfigWorker *nou = seleccionar_nou_principal(tipus_worker);
+                if (!nou) {
+                    log_event("No hi ha cap altre worker per reassignar com a principal.");
+                }
+            }
+
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&worker_mutex);
+}
+    
+
+/**
  * Afegeix un nou worker a la llista i estableix un worker principal si és el primer del seu tipus.
  * @param new_worker Configuració del nou worker.
  */

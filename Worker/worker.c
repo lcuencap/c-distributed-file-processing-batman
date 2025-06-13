@@ -122,6 +122,10 @@ int inicialitzar_connexio_gotham(ConfigWorker *config) {
         close(socket_fd);
         return -1;
     }
+    // DEBUG: Mostrem la resposta
+    char debug[128];
+    snprintf(debug, sizeof(debug), "Rebut type=0x%02X, length=%d, data='%s'\n", resposta.type, resposta.data_length, resposta.data);
+    write_message(STDOUT_FILENO, debug);
 
     if (resposta.type == 0x02 && resposta.data_length == 0) {
         write_message(STDOUT_FILENO, "Connexió establerta amb Gotham\n");

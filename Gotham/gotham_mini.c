@@ -220,8 +220,29 @@ void afegir_worker(ConfigWorker new_worker) {
             return;
         }
     }
+    
+    // 1. Redimensionar l’array abans de res
+    ConfigWorker *temp = realloc(workers, (num_workers + 1) * sizeof(ConfigWorker));
+    if (!temp) {
+        log_event("Error d'allocació de memòria per a un nou worker.");
+        pthread_mutex_unlock(&worker_mutex);
+        return;
+    }
+    workers = temp;
+    workers[num_workers] = new_worker;
+    workers[num_workers].base.ip = strdup(new_worker.base.ip);
+    workers[num_workers].ip_fleck = strdup(new_worker.ip_fleck);
+    workers[num_workers].base.port = new_worker.base.port;
+    workers[num_workers].port_fleck = new_worker.port_fleck;
+    workers[num_workers].worker_id = num_workers + 1;
+    workers[num_workers].last_heartbeat = time(NULL);
 
-    // Comprovar si ja hi ha un worker principal d'aquest tipus
+    // 2. Enviar CON_OK
+    Trama resposta;
+    inicialitzar_trama(&resposta, 0x02, "");
+    write(new_worker.base.socket_fd, &resposta, sizeof(resposta));
+
+    // 3. Comprovar si ha de ser principal
     int ja_te_principal = 0;
     for (int i = 0; i < num_workers; i++) {
         if (workers[i].base.type == new_worker.base.type && workers[i].is_primary_worker) {
@@ -230,43 +251,23 @@ void afegir_worker(ConfigWorker new_worker) {
         }
     }
 
-    // Redimensionar l’array
-    ConfigWorker *temp = realloc(workers, (num_workers + 1) * sizeof(ConfigWorker));
-    if (!temp) {
-        log_event("Error d'allocació de memòria per a un nou worker.");
-        pthread_mutex_unlock(&worker_mutex);
-        return;
-    }
-
-    workers = temp;
-
-    // Assignar i copiar dades del nou worker
-    workers[num_workers] = new_worker;
-    workers[num_workers].base.ip = strdup(new_worker.base.ip);
-    workers[num_workers].ip_fleck = strdup(new_worker.ip_fleck);
-    workers[num_workers].base.port = new_worker.base.port;
-    workers[num_workers].port_fleck = new_worker.port_fleck;
-    workers[num_workers].worker_id = num_workers + 1;
-    workers[num_workers].last_heartbeat = time(NULL);
     if (ja_te_principal == 0) {
-        // Si no hi ha cap principal, aquest serà el nou principal
         workers[num_workers].is_primary_worker = 1;
         Trama promotora;
         inicialitzar_trama(&promotora, 0x08, "");
-        write(workers[num_workers].base.socket_fd, &promotora, sizeof(promotora));
+        write(new_worker.base.socket_fd, &promotora, sizeof(promotora));
         log_event("Trama 0x08 enviada al primer worker com a principal.");
     } else {
-        // Si ja hi ha un principal, aquest no ho serà
         workers[num_workers].is_primary_worker = 0;
     }
 
-    // Log de confirmació
+    // 4. Fer el log
     char log_msg[256];
     snprintf(log_msg, sizeof(log_msg), 
-             "Worker ID: %d, Tipus: %d, IP Gotham: %s, IP Fleck: %s, Port Fleck: %d, Principal: %d",
-             workers[num_workers].worker_id, new_worker.base.type, 
-             new_worker.base.ip, new_worker.ip_fleck, new_worker.port_fleck,
-             workers[num_workers].is_primary_worker);
+            "Worker ID: %d, Tipus: %d, IP Gotham: %s, IP Fleck: %s, Port Fleck: %d, Principal: %d",
+            workers[num_workers].worker_id, new_worker.base.type, 
+            new_worker.base.ip, new_worker.ip_fleck, new_worker.port_fleck,
+            workers[num_workers].is_primary_worker);
     log_event(log_msg);
 
     num_workers++;
@@ -581,7 +582,7 @@ void *gestionar_client_fleck(void *arg) {
 
 
             pthread_mutex_lock(&worker_mutex);
-            
+
             ConfigWorker *alternatiu = buscar_alternatiu_no_principal(tipus_worker);
 
             pthread_mutex_unlock(&worker_mutex);

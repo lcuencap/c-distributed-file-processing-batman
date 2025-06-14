@@ -193,16 +193,13 @@ void *monitoritzar_heartbeats(void *arg) {
             }
             pthread_mutex_unlock(&worker_mutex);
 
-            double diff = difftime(ara, workers[i].last_heartbeat);
+            double diff = difftime(ara, last_heartbeat);
             if (diff > TIMEOUT) {
                 char log_msg[128];
                 snprintf(log_msg, sizeof(log_msg),
                          "Worker ID %d ha superat el timeout de %ds. Eliminant-lo.",
-                         workers[i].worker_id, TIMEOUT);
+                         worker_id, TIMEOUT);
                 log_event(log_msg);
-
-
-                int socket_fd = workers[i].base.socket_fd;
 
                 eliminar_worker_per_socket(socket_fd);
 

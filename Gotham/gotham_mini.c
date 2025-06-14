@@ -76,13 +76,15 @@ ConfigWorker* obtenir_principal(InstanceType tipus_worker) {
 
 ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
     pthread_mutex_lock(&worker_mutex);
-
-    // Comptar candidats
+    write_message(STDOUT_FILENO, "🔍 seleccionant nou principal...\n");
+    
     int total = 0;
     for (int i = 0; i < num_workers; i++) {
-        if (workers[i].base.type == tipus_worker && !workers[i].is_primary_worker) {
-            total++;
-        }
+        char debug[128];
+        snprintf(debug, sizeof(debug), "Worker ID %d, tipus %d, principal: %d\n",
+                workers[i].worker_id, workers[i].base.type, workers[i].is_primary_worker);
+        total++;
+        write_message(STDOUT_FILENO, debug);
     }
 
     if (total == 0) {
@@ -113,6 +115,7 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
              "Worker ID %d seleccionat com a nou principal del tipus %d.",
              workers[sel].worker_id, tipus_worker);
     log_event(log_msg);
+    write_message(STDOUT_FILENO, log_msg);
 
     pthread_mutex_unlock(&worker_mutex);
     return &workers[sel];
@@ -518,7 +521,7 @@ void *gestionar_client_fleck(void *arg) {
             log_event("Fleck ha sol·licitat la desconnexió.");
             close(client_socket);
             break;
-            
+
         } else if (trama.type == 0x10) {
 
             char *mediaType = strtok(trama.data, "&");

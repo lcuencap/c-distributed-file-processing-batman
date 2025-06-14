@@ -128,11 +128,15 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
 
 void eliminar_worker_per_socket(int socket_fd) {
     pthread_mutex_lock(&worker_mutex);
+    write_message(STDOUT_FILENO, "[DEBUG] S'ha fet mutex lock a eliminar_worker_per_socket.\n");
+
 
     for (int i = 0; i < num_workers; i++) {
+        write_message(STDOUT_FILENO, "[DEBUG] Entrem al for num_workers.\n");
         if (workers[i].base.socket_fd == socket_fd) {
             int tipus_worker = workers[i].base.type;
             int era_principal = workers[i].is_primary_worker;
+            write_message(STDOUT_FILENO, "[DEBUG] S'ha trobat el worker a eliminar.\n");
 
             free(workers[i].base.ip);
             free(workers[i].ip_fleck);
@@ -142,13 +146,18 @@ void eliminar_worker_per_socket(int socket_fd) {
             }
 
             num_workers--;
+            write_message(STDOUT_FILENO, "[DEBUG] S'ha eliminat el worker de la llista, fem realloc.\n");
+            // Redimensionar l'array de workers 
+
             workers = realloc(workers, num_workers * sizeof(ConfigWorker));
             if (workers == NULL && num_workers > 0) {
                 log_event("Error real·locant memòria en eliminar worker.");
             }
+            write_message(STDOUT_FILENO, "[DEBUG] S'ha fet realloc a l'array de workers.\n");
 
             // Reassignar si cal
             if (era_principal) {
+                write_message(STDOUT_FILENO, "[DEBUG] El worker era principal, seleccionant nou principal.\n");
                 ConfigWorker *nou = seleccionar_nou_principal(tipus_worker);
                 if (!nou) {
                     log_event("No hi ha cap altre worker per reassignar com a principal.");
@@ -168,10 +177,22 @@ void *monitoritzar_heartbeats(void *arg) {
     const int TIMEOUT = 15;  // segons
 
     while (1) {
-        pthread_mutex_lock(&worker_mutex);
         time_t ara = time(NULL);
 
         for (int i = 0; i < num_workers; i++) {
+            int worker_id;
+            int socket_fd;
+            time_t last_heartbeat;
+
+            pthread_mutex_lock(&worker_mutex);
+            // Copiem les dades crítiques que necessitem abans de sortir del lock
+            if (i < num_workers) {  // Comprovació per si num_workers ha canviat
+                worker_id = workers[i].worker_id;
+                socket_fd = workers[i].base.socket_fd;
+                last_heartbeat = workers[i].last_heartbeat;
+            }
+            pthread_mutex_unlock(&worker_mutex);
+
             double diff = difftime(ara, workers[i].last_heartbeat);
             if (diff > TIMEOUT) {
                 char log_msg[128];
@@ -180,17 +201,15 @@ void *monitoritzar_heartbeats(void *arg) {
                          workers[i].worker_id, TIMEOUT);
                 log_event(log_msg);
 
+
                 int socket_fd = workers[i].base.socket_fd;
 
-                write_message(STDOUT_FILENO, "[DEBUG] S'ha fet mutex lock.\n");
                 eliminar_worker_per_socket(socket_fd);
 
                 i = -1;  // Reiniciem l’iteració perquè la llista ha canviat
                 break;
             }
         }
-
-        pthread_mutex_unlock(&worker_mutex);
         sleep(5);  // Interval entre comprovacions
     }
 

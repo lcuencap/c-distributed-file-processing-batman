@@ -37,7 +37,7 @@ void enviar_heartbeat(int signo) {
     (void)signo;  // Evitar warnings per paràmetre no utilitzat
 
     Trama heartbeat_trama;
-    inicialitzar_trama(&heartbeat_trama, 0x12, "Heartbeat");
+    inicialitzar_trama(&heartbeat_trama, 0x12, "");
 
     if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
         write_message(STDERR_FILENO, "Error enviant heartbeat a Gotham. Intentant reconnectar...\n");

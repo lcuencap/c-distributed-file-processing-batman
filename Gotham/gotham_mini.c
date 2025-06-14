@@ -368,13 +368,12 @@ void *handle_worker(void *arg) {
 
             pthread_mutex_lock(&worker_mutex);
             for (int i = 0; i < num_workers; i++) {
-                if (strcmp(workers[i].ip_fleck, trama.data) == 0) {
+                if (workers[i].base.socket_fd == worker_socket) {
                     workers[i].last_heartbeat = time(NULL);
                     break;
                 }
             }
             pthread_mutex_unlock(&worker_mutex);
-
         } else {
             int len6 = snprintf(NULL, 0, "Trama desconeguda rebuda del worker: 0x%02X\n", trama.type) + 1;
             char *msg6 = malloc(len6);
@@ -514,6 +513,12 @@ void *gestionar_client_fleck(void *arg) {
                 snprintf(msg, sizeof(msg), "Unknown user connected to Mr. J System. Let the chaos begin!:)\n");
             }
             write(STDOUT_FILENO, msg, strlen(msg));
+        } else if (trama.type == 0x07) {
+
+            log_event("Fleck ha sol·licitat la desconnexió.");
+            close(client_socket);
+            break;
+            
         } else if (trama.type == 0x10) {
 
             char *mediaType = strtok(trama.data, "&");

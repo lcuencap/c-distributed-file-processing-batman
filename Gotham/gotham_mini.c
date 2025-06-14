@@ -75,7 +75,6 @@ ConfigWorker* obtenir_principal(InstanceType tipus_worker) {
 }
 
 ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
-    pthread_mutex_lock(&worker_mutex);
     write_message(STDOUT_FILENO, "🔍 seleccionant nou principal...\n");
     
     int total = 0;
@@ -117,7 +116,6 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
     log_event(log_msg);
     write_message(STDOUT_FILENO, log_msg);
 
-    pthread_mutex_unlock(&worker_mutex);
     return &workers[sel];
 }
 
@@ -184,9 +182,8 @@ void *monitoritzar_heartbeats(void *arg) {
 
                 int socket_fd = workers[i].base.socket_fd;
 
-                pthread_mutex_unlock(&worker_mutex);  // Alliberem abans d’eliminar
+                write_message(STDOUT_FILENO, "[DEBUG] S'ha fet mutex lock.\n");
                 eliminar_worker_per_socket(socket_fd);
-                pthread_mutex_lock(&worker_mutex);    // Tornem a bloquejar
 
                 i = -1;  // Reiniciem l’iteració perquè la llista ha canviat
                 break;

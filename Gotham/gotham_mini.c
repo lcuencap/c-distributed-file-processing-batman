@@ -220,7 +220,7 @@ void afegir_worker(ConfigWorker new_worker) {
             return;
         }
     }
-    
+
     // 1. Redimensionar l’array abans de res
     ConfigWorker *temp = realloc(workers, (num_workers + 1) * sizeof(ConfigWorker));
     if (!temp) {
@@ -328,11 +328,6 @@ void *handle_worker(void *arg) {
                 write_message(STDOUT_FILENO, msg1);
                 free(msg1);
             }
-
-            // Envia CON_OK
-            Trama resposta;
-            inicialitzar_trama(&resposta, 0x02, "");
-            write(worker_socket, &resposta, sizeof(resposta));
 
             // Mensaje registro
             int len2 = snprintf(NULL, 0, "Worker registrat: %s:%d (type: %s)\n", workerIP, new_worker.port_fleck, workerType) + 1;

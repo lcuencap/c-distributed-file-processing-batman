@@ -36,6 +36,19 @@ int worker_fd = -1;          // Descriptor del socket connectat al worker
 static DistorsioStatus *head = NULL;
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+void mark_error_status(const char *file_name) {
+    pthread_mutex_lock(&status_mutex);
+    DistorsioStatus *curr = head;
+    while (curr) {
+        if (strcmp(curr->file_name, file_name) == 0) {
+            curr->error = 1;
+            break;
+        }
+        curr = curr->next;
+    }
+    pthread_mutex_unlock(&status_mutex);
+}
+
 void register_new_file(const char *file_name) {
     char debug_buf[256];
     snprintf(debug_buf, sizeof(debug_buf), "[DEBUG] Registrada nova distorsió: %s\n", file_name);
@@ -46,6 +59,7 @@ void register_new_file(const char *file_name) {
         strncpy(new_status->file_name, file_name, sizeof(new_status->file_name));
         new_status->file_name[sizeof(new_status->file_name) - 1] = '\0';
         new_status->progress = 0;
+        new_status->error = 0; 
         new_status->next = head;
         head = new_status;
     }
@@ -109,18 +123,23 @@ void print_all_progress() {
     }
 
     while (curr) {
-        int offset = snprintf(buffer, sizeof(buffer), "%s %d%% |", curr->file_name, curr->progress);
-        int bars = curr->progress / 5;
-        for (int i = 0; i < bars && offset < (int)(sizeof(buffer) - 2); ++i) {
-            buffer[offset++] = '=';
+        if (curr->error) {
+            int len = snprintf(buffer, sizeof(buffer), "\033[0;31m%s %d%% |ABORTED|\033[0m\n", curr->file_name, curr->progress);
+            write_message(STDOUT_FILENO, buffer);
+        } else {
+            int offset = snprintf(buffer, sizeof(buffer), "%s %d%% |", curr->file_name, curr->progress);
+            int bars = curr->progress / 5;
+            for (int i = 0; i < bars && offset < (int)(sizeof(buffer) - 2); ++i) {
+                buffer[offset++] = '=';
+            }
+            if (offset < (int)(sizeof(buffer) - 2)) {
+                buffer[offset++] = '|';
+            }
+            buffer[offset++] = '\n';
+            buffer[offset] = '\0';
+            write_message(STDOUT_FILENO, buffer);
+            curr = curr->next;
         }
-        if (offset < (int)(sizeof(buffer) - 2)) {
-            buffer[offset++] = '|';
-        }
-        buffer[offset++] = '\n';
-        buffer[offset] = '\0';
-        write_message(STDOUT_FILENO, buffer);
-        curr = curr->next;
     }
 
     pthread_mutex_unlock(&status_mutex);

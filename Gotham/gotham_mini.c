@@ -214,6 +214,7 @@ void *monitoritzar_heartbeats(void *arg) {
 }
 
 
+
 /**
  * Afegeix un nou worker a la llista i estableix un worker principal si és el primer del seu tipus.
  * @param new_worker Configuració del nou worker.

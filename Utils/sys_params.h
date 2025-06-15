@@ -45,6 +45,7 @@ typedef struct DistorsioStatus {
     uint32_t mida_distorsionat;
     uint32_t bytes_enviats;
     uint32_t bytes_rebuts;
+    int error; // 1 si hi ha hagut un error, 0 si no
     struct DistorsioStatus *next;
 } DistorsioStatus;
 

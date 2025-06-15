@@ -331,12 +331,17 @@ int solicitar_nou_worker(const char *media_type, const char *file_name, char *wo
     char data[245];
     snprintf(data, sizeof(data), "%s&%s", media_type, file_name);
     inicialitzar_trama(&peticio, 0x11, data);
+    
 
     // Enviar la petició a Gotham
     if (write(sock_fd, &peticio, sizeof(peticio)) != sizeof(peticio)) {
         write_message(STDOUT_FILENO, "Error enviant petició a Gotham per assignar nou worker.\n");
         return -1;
     }
+    write_message(STDOUT_FILENO, "Trama 0x11 enviada\n");
+    write_message(STDOUT_FILENO, "Esperant resposta de Gotham...\n");
+
+
 
     // Llegir la resposta de Gotham
     Trama resposta;
@@ -344,11 +349,20 @@ int solicitar_nou_worker(const char *media_type, const char *file_name, char *wo
         write_message(STDOUT_FILENO, "Error rebent resposta de Gotham.\n");
         return -1;
     }
+    write_message(STDOUT_FILENO, "Resposta rebuda de Gotham.\n");
 
     if (!validar_trama(&resposta)) {
         write_message(STDOUT_FILENO, "Resposta de Gotham invàlida.\n");
         return -1;
     }
+    write_message(STDOUT_FILENO, "Resposta rebuda vàlida.\n");
+
+    if (resposta.type != 0x11) {
+        write_message(STDOUT_FILENO, "Resposta de Gotham no és del tipus esperat.\n");
+        return -1;
+    }
+    write_message(STDOUT_FILENO, "Resposta rebuda de tipus 0x11.\n");
+
 
     if (strcmp(resposta.data, "DISTORT_KO") == 0) {
         write_message(STDOUT_FILENO, "Error: No hi ha workers disponibles.\n");

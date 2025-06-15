@@ -586,33 +586,52 @@ void *gestionar_client_fleck(void *arg) {
             if (!mediaType || !fileName) {
                 inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
                 write(client_socket, &resposta, sizeof(resposta));
-                continue;
+                return NULL;
             }
 
-            // Verificació extensió
             int tipus_worker;
             if (!validar_tipus_fitxer(mediaType, fileName, &tipus_worker)) {
                 inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
                 write(client_socket, &resposta, sizeof(resposta));
-                continue;
+                return NULL;
             }
-
-
+            
+            int principal_socket_fd = -1;
             pthread_mutex_lock(&worker_mutex);
-
-            ConfigWorker *alternatiu = buscar_alternatiu_no_principal(tipus_worker);
-
+            ConfigWorker *principal = obtenir_principal(tipus_worker);
+            if (principal) {
+                principal_socket_fd = principal->base.socket_fd;
+            }
             pthread_mutex_unlock(&worker_mutex);
 
-            if (alternatiu) {
-                char resposta_data[64];
-                snprintf(resposta_data, sizeof(resposta_data), "%s&%d", alternatiu->ip_fleck, alternatiu->port_fleck);
-                inicialitzar_trama(&resposta, 0x11, resposta_data);
-            } else {
-                inicialitzar_trama(&resposta, 0x11, "DISTORT_KO");
+            if (principal_socket_fd != -1) {
+                char debug_msg[128];
+                snprintf(debug_msg, sizeof(debug_msg),
+                        "[REASSIGN] Eliminant principal (socket_fd %d) del tipus %d abans de reassignar.",
+                        principal_socket_fd, tipus_worker);
+                log_event(debug_msg);
+                eliminar_worker_per_socket(principal_socket_fd);
             }
+            
+            char ip_tmp[64];
+            int port_tmp = -1;
 
-            write(client_socket, &resposta, sizeof(resposta));
+            pthread_mutex_lock(&worker_mutex);
+            ConfigWorker *nou_principal = obtenir_principal(tipus_worker);
+            if (nou_principal) {
+                strncpy(ip_tmp, nou_principal->ip_fleck, sizeof(ip_tmp));
+                ip_tmp[sizeof(ip_tmp) - 1] = '\0';
+                port_tmp = nou_principal->port_fleck;
+            }
+            pthread_mutex_unlock(&worker_mutex);
+
+            if (port_tmp == -1) {
+                inicialitzar_trama(&resposta, 0x11, "DISTORT_KO");
+            } else {
+                char data_resposta[64];
+                snprintf(data_resposta, sizeof(data_resposta), "%s&%d", ip_tmp, port_tmp);
+                inicialitzar_trama(&resposta, 0x11, data_resposta);
+            }
         } else {
             // Tipus desconegut de trama
             char missatge[64];

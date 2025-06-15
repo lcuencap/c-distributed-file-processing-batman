@@ -124,7 +124,7 @@ void print_all_progress() {
 
     while (curr) {
         if (curr->error) {
-            int len = snprintf(buffer, sizeof(buffer), "\033[0;31m%s %d%% |ABORTED|\033[0m\n", curr->file_name, curr->progress);
+            snprintf(buffer, sizeof(buffer), "\033[0;31m%s %d%% |ABORTED|\033[0m\n", curr->file_name, curr->progress);
             write_message(STDOUT_FILENO, buffer);
         } else {
             int offset = snprintf(buffer, sizeof(buffer), "%s %d%% |", curr->file_name, curr->progress);

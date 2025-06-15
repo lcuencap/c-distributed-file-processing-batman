@@ -126,6 +126,7 @@ void print_all_progress() {
         if (curr->error) {
             snprintf(buffer, sizeof(buffer), "\033[0;31m%s %d%% |ABORTED|\033[0m\n", curr->file_name, curr->progress);
             write_message(STDOUT_FILENO, buffer);
+            curr = curr->next;
         } else {
             int offset = snprintf(buffer, sizeof(buffer), "%s %d%% |", curr->file_name, curr->progress);
             int bars = curr->progress / 5;
@@ -874,7 +875,7 @@ void netejar_distorsions_acabades() {
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus **curr = &head;
     while (*curr) {
-        if ((*curr)->progress == 100) {
+        if ((*curr)->progress == 100 || (*curr)->error == 1) {
             DistorsioStatus *a_eliminar = *curr;
             *curr = (*curr)->next;
             free(a_eliminar);

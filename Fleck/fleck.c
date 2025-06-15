@@ -858,6 +858,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             if (gestionar_distorsio_worker(args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
                 write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
             } else {
+                mark_error_status(file);
                 write_message(STDOUT_FILENO, "Error during distortion :(\n");
             }
            

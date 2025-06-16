@@ -456,6 +456,38 @@ void gestionar_comanda_list(const char **media_types, size_t count) {
 }
 
 /**
+ * Valida la connexió amb el Worker enviant trama 0x03 i esperant la resposta del worker (0x03).
+ * @param file_name Nom del fitxer a enviar.
+ * @param file_size Mida del fitxer en bytes.
+ * @param md5sum MD5SUM del fitxer per verificar la integritat.
+ * @param factor Factor de distorsió.
+ * @return 0 si la connexió és vàlida, -1 si hi ha un error.
+ */
+int validar_connexio_distort_worker(const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
+    Trama trama;
+    char data[245];
+    snprintf(data, sizeof(data), "%s&%u&%s&%d", file_name, file_size, md5sum, factor);
+    inicialitzar_trama(&trama, 0x03, data);
+
+    // Enviar metadades del fitxer al Worker
+    if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
+        write_message(STDOUT_FILENO, "Error enviant la trama de informació del  fitxer al worker.\n");
+        enviar_trama_desconnexio_worker();
+        return -1;
+    }
+
+
+    if (esperar_resposta_connexio() != 0) {
+        write_message(STDOUT_FILENO, "Error validant la connexió amb el Worker.\n");
+        enviar_trama_desconnexio_worker();
+        return -1;
+    }
+
+    return 0;
+}
+
+
+/**
  * Gestiona la caiguda del Worker a qualsevol fase de la distorsió.
  * @param fase La fase actual ("ENVIANT", "ESPERANT_04", "REBENT").
  * @param media_type Tipus de media ("media", "text").
@@ -502,37 +534,6 @@ int gestionar_caiguda_worker(const char *fase, const char *media_type, const cha
     return 0;
 }
 
-/**
- * Valida la connexió amb el Worker enviant trama 0x03 i esperant la resposta del worker (0x03).
- * @param file_name Nom del fitxer a enviar.
- * @param file_size Mida del fitxer en bytes.
- * @param md5sum MD5SUM del fitxer per verificar la integritat.
- * @param factor Factor de distorsió.
- * @return 0 si la connexió és vàlida, -1 si hi ha un error.
- */
-int validar_connexio_distort_worker(const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
-    Trama trama;
-    char data[245];
-    snprintf(data, sizeof(data), "%s&%u&%s&%d", file_name, file_size, md5sum, factor);
-    inicialitzar_trama(&trama, 0x03, data);
-
-    // Enviar metadades del fitxer al Worker
-    if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
-        write_message(STDOUT_FILENO, "Error enviant la trama de informació del  fitxer al worker.\n");
-        enviar_trama_desconnexio_worker();
-        return -1;
-    }
-
-
-    if (esperar_resposta_connexio() != 0) {
-        write_message(STDOUT_FILENO, "Error validant la connexió amb el Worker.\n");
-        enviar_trama_desconnexio_worker();
-        return -1;
-    }
-
-    return 0;
-}
-
 
 /**
  * Envia el fitxer al worker.
@@ -545,7 +546,6 @@ int validar_connexio_distort_worker(const char *file_name, uint32_t file_size, c
  */
 int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
     Trama trama;
-    char data[245];
     struct timeval timeout;
     off_t total_enviat = 0;
     
@@ -678,9 +678,8 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
                 }
                 continue;  // Tornar a esperar.
             } else {
-                if (gestionar_caiguda_worker(ESPERANT, media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
+                if (gestionar_caiguda_worker("ESPERANT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
                     write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
-                    close(output_fd);
                     return ERROR_WORKER_DOWN;
                 } else {
                     write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");
@@ -698,7 +697,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         
 
         if (bytes_read == 0 || errno == ECONNRESET || errno == EPIPE) {
-            if (gestionar_caiguda_worker(media_type, file_name) < 0) {
+            if (gestionar_caiguda_worker("REBENT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
                 write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                 close(output_fd);
                 return ERROR_WORKER_DOWN;
@@ -731,7 +730,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
     strncpy(md5sum_expected, sep + 1, MD5SUM_LENGTH - 1);
     md5sum_expected[MD5SUM_LENGTH - 1] = '\0';
 
-    uint32_t file_size = strtoul(file_size_str, NULL, 10);
+    uint32_t file_size_rebuda = strtoul(file_size_str, NULL, 10);
 
     // 2. Obrir fitxer de sortida
     int output_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -739,20 +738,20 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         enviar_trama_desconnexio_worker();
         return ERROR_OUTPUT_FILE;
     }
-    update_progress_status(file_name, REBENT, file_size, 0, 0, 0);
+    update_progress_status(file_name, REBENT, file_size, file_size_rebuda, 0, 0);
 
 
     uint32_t total_rebut = 0;
 
     // 3. Rebre trames 0x05 fins completar file_size
-    while (total_rebut < file_size) {
+    while (total_rebut < file_size_rebuda) {
         ssize_t bytes_read = safe_read(worker_fd, &trama, sizeof(trama));
         write_message(STDOUT_FILENO, "[DEBUG] Esperant trama 0x05 del Worker...\n");
         if (bytes_read != sizeof(trama)) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
             if (errno == ECONNRESET || errno == EPIPE) {
-                if (gestionar_caiguda_worker(media_type, file_name) < 0) {
+                if (gestionar_caiguda_worker("REBENT", media_type, file_name), worker_fd, file_size, md5sum, factor) < 0) {
                     write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                     close(output_fd);
                     return ERROR_WORKER_DOWN;
@@ -777,7 +776,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         }
 
         total_rebut += trama.data_length;
-        update_progress_status(file_name, REBENT, 0, file_size, 0, total_rebut);
+        update_progress_status(file_name, REBENT, 0, file_size_rebuda, 0, total_rebut);
     }
 
     write_message(STDOUT_FILENO, "[DEBUG] Fitxer rebut completament del Worker.\n");
@@ -868,7 +867,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
 
     char output_file[256];
     snprintf(output_file, sizeof(output_file), "distorted_%s", file_name);
-    if (rebre_fitxer_worker(output_file, media_type, file_name, file_size, &md5sum, factor) < 0) {
+    if (rebre_fitxer_worker(output_file, media_type, file_name, file_size, md5sum, factor) < 0) {
         enviar_trama_desconnexio_worker();
         return -1;
     }

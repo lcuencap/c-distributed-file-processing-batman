@@ -550,7 +550,7 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
     off_t total_enviat = 0;
     
     
-    if (!validar_connexio_distort_worker(file_name, file_size, md5sum, factor)) {
+    if (validar_connexio_distort_worker(file_name, file_size, md5sum, factor) != 0) {
         write_message(STDOUT_FILENO, "[FLECK] Error establint connexió amb el Worker.\n");
         return -1;
     }

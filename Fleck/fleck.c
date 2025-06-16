@@ -699,7 +699,6 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         if (bytes_read == 0 || errno == ECONNRESET || errno == EPIPE) {
             if (gestionar_caiguda_worker("REBENT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
                 write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
-                close(output_fd);
                 return ERROR_WORKER_DOWN;
             } else {
                 write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");                    continue;  
@@ -751,7 +750,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
             if (errno == ECONNRESET || errno == EPIPE) {
-                if (gestionar_caiguda_worker("REBENT", media_type, file_name), worker_fd, file_size, md5sum, factor) < 0) {
+                if (gestionar_caiguda_worker("REBENT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
                     write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                     close(output_fd);
                     return ERROR_WORKER_DOWN;

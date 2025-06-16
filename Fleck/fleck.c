@@ -586,7 +586,6 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
                     return ERROR_WORKER_DOWN;
                 } else {
                     write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");
-                    continue;  
                 }
                 lseek(file_fd, position, SEEK_SET); // Continuar des d'on ens havíem quedat
                 continue;
@@ -625,7 +624,7 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
         return -1;
     } 
 
-    if (strncmp(resposta_md5.data, "CHECK_OK", resposta_md5.data_length) != 0) {
+    if (resposta_md5.data_length != 8 || strncmp(resposta_md5.data, "CHECK_OK", 8) != 0) {
         write_message(STDOUT_FILENO, "[FLECK] El Worker ha indicat un error de recepció del fitxer.\n");
         enviar_trama_desconnexio_worker();
         return -1;
@@ -759,6 +758,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
                     return ERROR_WORKER_DOWN;
                 } else {
                     write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");
+                    lseek(output_fd, total_rebut, SEEK_SET);
                     continue;  
                 }
             }

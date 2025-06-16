@@ -655,7 +655,7 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
 int rebre_fitxer_worker(const char *output_file, const char *media_type, const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
     Trama trama;
     time_t last_print = time(NULL);
-    ssize_t bytes_read
+    ssize_t bytes_read;
     // Desactivar timeout per esperar indefinidament la trama 0x04
     struct timeval timeout;
     timeout.tv_sec = 0;
@@ -855,7 +855,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     write_message(STDOUT_FILENO, "Distorsion started!\n");
 
 
-    if (enviar_fitxer_worker(media_type, file_name, file_size, &md5sum, factor) < 0) {
+    if (enviar_fitxer_worker(media_type, file_name, file_size, md5sum, factor) < 0) {
         enviar_trama_desconnexio_worker();
         return -1;
     }

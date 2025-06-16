@@ -36,6 +36,10 @@ int worker_fd = -1;          // Descriptor del socket connectat al worker
 static DistorsioStatus *head = NULL;
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/**
+ * Marca un fitxer com a error en el processat.
+ * @param file_name Nom del fitxer processat.
+ */
 void mark_error_status(const char *file_name) {
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *curr = head;
@@ -49,6 +53,10 @@ void mark_error_status(const char *file_name) {
     pthread_mutex_unlock(&status_mutex);
 }
 
+/**
+ * Registra un nou fitxer per processar.
+ * @param file_name Nom del fitxer a processar.
+ */
 void register_new_file(const char *file_name) {
     char debug_buf[256];
     snprintf(debug_buf, sizeof(debug_buf), "[DEBUG] Registrada nova distorsió: %s\n", file_name);
@@ -66,7 +74,14 @@ void register_new_file(const char *file_name) {
     pthread_mutex_unlock(&status_mutex);
 }
 
-
+/**
+ * Sol·licita a Gotham un nou worker per processar un fitxer.
+ * @param media_type Tipus de media (media, text).
+ * @param file_name Nom del fitxer a processar. 
+ * @param worker_ip Punter a una cadena on es guardarà la IP del nou worker.
+ * @param worker_port Punter a un enter on es guardarà el port del nou worker.
+ * @return Retorna 0 si tot va bé, -1 en cas d'error.
+ */
 int solicitar_nou_worker(const char *media_type, const char *file_name, char *worker_ip, int *worker_port) {
     Trama peticio;
     char data[245];
@@ -193,7 +208,7 @@ int connectar_a_server(const char *ip, int port) {
 }
 
 /**
- * Valida la connexió amb el worker enviant una trama de validació i esperant una resposta.
+ * Valida la connexió amb el worker esperant la trama de validació 0x03.
  * @return 0 si la connexió és vàlida, -1 si hi ha un error.
  */
 int esperar_resposta_connexio() {
@@ -219,7 +234,16 @@ int esperar_resposta_connexio() {
     return -1;
 }
 
-
+/**
+ * Actualitza l'estat del progrés d'una distorsió.
+ * Si el fitxer no està registrat, no fa res.
+ * @param file_name Nom del fitxer a actualitzar.
+ * @param estat Estat de la distorsió (ENVIANT, ESPERANT, REBENT, FINALITZAT).
+ * @param mida_original Mida original del fitxer.
+ * @param mida_distorsionat Mida del fitxer distorsionat.
+ * @param bytes_enviats Bytes enviats fins ara.
+ * @param bytes_rebuts Bytes rebuts fins ara.
+ */
 void update_progress_status(const char *file_name, EstatFase estat, uint32_t mida_original, uint32_t mida_distorsionat, uint32_t bytes_enviats, uint32_t bytes_rebuts) {
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *curr = head;
@@ -249,7 +273,11 @@ void update_progress_status(const char *file_name, EstatFase estat, uint32_t mid
     pthread_mutex_unlock(&status_mutex);
 }
 
-
+/**
+ * Desregistra un fitxer de la llista d'estats de distorsió.
+ * Si el fitxer no existeix, no fa res.
+ * @param file_name Nom del fitxer a desregistrar.
+ */
 void unregister_file(const char *file_name) {
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus **curr = &head;
@@ -265,6 +293,10 @@ void unregister_file(const char *file_name) {
     pthread_mutex_unlock(&status_mutex);
 }
 
+/**
+ * Imprimeix l'estat de totes les distorsions en curs o finalitzades.
+ * Mostra el nom del fitxer, el progrés i l'estat de la distorsió.
+ */
 void print_all_progress() {
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *curr = head;
@@ -300,7 +332,10 @@ void print_all_progress() {
     pthread_mutex_unlock(&status_mutex);
 }
 
-
+/**
+ * Envia una trama de desconnexió al worker de tipus 0x07 i tanca el socket.
+ * Aquesta funció s'ha d'invocar quan Fleck es vol desconnectar del worker.
+ */
 void enviar_trama_desconnexio_worker() {
     if (worker_fd >= 0) {
         Trama trama;
@@ -312,6 +347,10 @@ void enviar_trama_desconnexio_worker() {
     }
 }
 
+/**
+ * Envia una trama de desconnexió a Gotham de tipus 0x07 i tanca el socket.
+ * Aquesta funció s'ha d'invocar quan Fleck es vol desconnectar de Gotham.
+ */
 void enviar_trama_desconnexio_gotham() {
     if (sock_fd >= 0) {
         Trama trama;
@@ -334,7 +373,7 @@ void ctrlc_handler(int sig) {
     (void)sig;  
     write_message(STDOUT_FILENO, "S'ha rebut Ctrl+C. Tancant Fleck...\n");
 
-     if (connected_to_gotham) {
+    if (connected_to_gotham) {
         enviar_trama_desconnexio_gotham();  
     }
 
@@ -376,7 +415,11 @@ void establir_connexio_gotham() {
     }
 }
 
-
+/**
+ * Llista els fitxers disponibles a la carpeta actual que coincideixin amb les extensions de media especificades.
+ * @param media_types Array de punters a cadenes de caràcters amb les extensions de fitxer a buscar.
+ * @param count Nombre d'extensions a buscar.
+ */
 void gestionar_comanda_list(const char **media_types, size_t count) {
     DIR *dir = opendir(".");
     if (!dir) {
@@ -414,7 +457,6 @@ void gestionar_comanda_list(const char **media_types, size_t count) {
 
 /**
  * Gestiona la caiguda del Worker a qualsevol fase de la distorsió.
- * 
  * @param fase La fase actual ("ENVIANT", "ESPERANT_04", "REBENT").
  * @param media_type Tipus de media ("media", "text").
  * @param file_name Nom del fitxer.
@@ -460,6 +502,14 @@ int gestionar_caiguda_worker(const char *fase, const char *media_type, const cha
     return 0;
 }
 
+/**
+ * Valida la connexió amb el Worker enviant trama 0x03 i esperant la resposta del worker (0x03).
+ * @param file_name Nom del fitxer a enviar.
+ * @param file_size Mida del fitxer en bytes.
+ * @param md5sum MD5SUM del fitxer per verificar la integritat.
+ * @param factor Factor de distorsió.
+ * @return 0 si la connexió és vàlida, -1 si hi ha un error.
+ */
 int validar_connexio_distort_worker(const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
     Trama trama;
     char data[245];

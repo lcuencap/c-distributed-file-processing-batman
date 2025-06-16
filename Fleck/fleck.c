@@ -66,6 +66,156 @@ void register_new_file(const char *file_name) {
     pthread_mutex_unlock(&status_mutex);
 }
 
+
+int solicitar_nou_worker(const char *media_type, const char *file_name, char *worker_ip, int *worker_port) {
+    Trama peticio;
+    char data[245];
+    snprintf(data, sizeof(data), "%s&%s", media_type, file_name);
+    inicialitzar_trama(&peticio, 0x11, data);
+    
+
+    // Enviar la petició a Gotham
+    if (write(sock_fd, &peticio, sizeof(peticio)) != sizeof(peticio)) {
+        write_message(STDOUT_FILENO, "Error enviant petició a Gotham per assignar nou worker.\n");
+        return -1;
+    }
+    write_message(STDOUT_FILENO, "Trama 0x11 enviada\n");
+    write_message(STDOUT_FILENO, "Esperant resposta de Gotham...\n");
+
+
+
+    // Llegir la resposta de Gotham
+    Trama resposta;
+    if (safe_read(sock_fd, &resposta, sizeof(Trama)) < 0) {
+        write_message(STDOUT_FILENO, "Error rebent resposta de Gotham.\n");
+        return -1;
+    }
+    write_message(STDOUT_FILENO, "Resposta rebuda de Gotham.\n");
+
+    if (!validar_trama(&resposta)) {
+        write_message(STDOUT_FILENO, "Resposta de Gotham invàlida.\n");
+        return -1;
+    }
+    write_message(STDOUT_FILENO, "Resposta rebuda vàlida.\n");
+
+    if (resposta.type != 0x11) {
+        write_message(STDOUT_FILENO, "Resposta de Gotham no és del tipus esperat.\n");
+        return -1;
+    }
+    write_message(STDOUT_FILENO, "Resposta rebuda de tipus 0x11.\n");
+
+
+    if (strcmp(resposta.data, "DISTORT_KO") == 0) {
+        write_message(STDOUT_FILENO, "Error: No hi ha workers disponibles.\n");
+        return -1;
+    } else if (strcmp(resposta.data, "MEDIA_KO") == 0) {
+        write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte.\n");
+        return -1;
+    } else {
+        // Extraer IP y puerto del nuevo Worker manualmente
+        char *delimiter = strchr(resposta.data, '&');
+        if (!delimiter) {
+            write_message(STDOUT_FILENO, "Error: Resposta de Gotham invàlida.\n");
+            return -1;
+        }
+
+        size_t ip_length = delimiter - resposta.data;
+        strncpy(worker_ip, resposta.data, ip_length);
+        worker_ip[ip_length] = '\0'; // Añadir terminador nulo
+
+        *worker_port = atoi(delimiter + 1); // Convertir el puerto a entero
+
+        return 0;
+    }
+}
+
+/**
+ * Connecta amb un servidor (ja sigui Gotham o un worker) usant sockets TCP.
+ * @param ip L'adreça IP del servidor.
+ * @param port El port del servidor.
+ * @return Descriptor del socket connectat, o -1 si hi ha un error.
+ */
+int connectar_a_server(const char *ip, int port) {
+    int retries = 0;
+    char buffer[256];
+    int sock_fd = -1;
+
+    while (retries < MAX_RETRIES) {
+        snprintf(buffer, sizeof(buffer), "Intentant connectar a %s:%d (Intent %d/%d)\n", ip, port, retries + 1, MAX_RETRIES);
+        write_message(STDERR_FILENO, buffer);
+
+        sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock_fd < 0) {
+            write_message(STDERR_FILENO, "Error creant el socket\n");
+            return -1;
+        }
+
+        struct sockaddr_in server_addr;
+        memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(port);
+
+        if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0) {
+            write_message(STDERR_FILENO, "Error convertint l'adreça IP\n");
+            close(sock_fd);
+            return -1;
+        }
+
+        if (connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+            close(sock_fd);
+            retries++;
+            write_message(STDERR_FILENO, "Error connectant al servidor, reintentant...\n");
+            sleep(1);
+            continue;
+        }
+
+        
+
+        struct timeval timeout;
+        timeout.tv_sec = TIMEOUT_SECONDS;
+        timeout.tv_usec = 0;
+        setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+        snprintf(buffer, sizeof(buffer), "Connexió establerta amb %s:%d\n", ip, port);
+        write_message(STDERR_FILENO, buffer);
+        return sock_fd;
+    }
+    write_message(STDERR_FILENO, "Error: No s'ha pogut connectar després de múltiples intents.\n");    
+    if (sock_fd >= 0) {
+        Trama trama_desconnexio;
+        inicialitzar_trama(&trama_desconnexio, 0x07, config.username);
+        write(sock_fd, &trama_desconnexio, sizeof(trama_desconnexio));
+        close(sock_fd);
+    }
+
+
+    return -1;
+}
+
+int validar_connexio_worker() {
+    Trama resposta;
+
+    if (safe_read(worker_fd, &resposta, sizeof(Trama)) < 0) {
+        write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut llegir la resposta del Worker\n");
+        close(worker_fd);
+        return -1;
+    }
+
+    if (resposta.type == 0x03 && resposta.data_length == 0) {
+        write_message(STDOUT_FILENO, "[OK] Connexió amb el worker validada.\n");
+        return 0;
+    }
+
+    if (resposta.type == 0x03 && strcmp(resposta.data, "CON_KO") == 0) {
+        write_message(STDOUT_FILENO, "El worker ha rebutjat la connexió.\n");
+        return -1;
+    }
+
+    write_message(STDOUT_FILENO, "[ERROR] Resposta inesperada del worker.\n");
+    return -1;
+}
+
+
 void update_progress_status(const char *file_name, EstatFase estat, uint32_t mida_original, uint32_t mida_distorsionat, uint32_t bytes_enviats, uint32_t bytes_rebuts) {
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *curr = head;
@@ -171,72 +321,6 @@ void enviar_trama_desconnexio_gotham() {
 }
 
 
-
-/**
- * Connecta amb un servidor (ja sigui Gotham o un worker) usant sockets TCP.
- * @param ip L'adreça IP del servidor.
- * @param port El port del servidor.
- * @return Descriptor del socket connectat, o -1 si hi ha un error.
- */
-int connectar_a_server(const char *ip, int port) {
-    int retries = 0;
-    char buffer[256];
-    int sock_fd = -1;
-
-    while (retries < MAX_RETRIES) {
-        snprintf(buffer, sizeof(buffer), "Intentant connectar a %s:%d (Intent %d/%d)\n", ip, port, retries + 1, MAX_RETRIES);
-        write_message(STDERR_FILENO, buffer);
-
-        sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sock_fd < 0) {
-            write_message(STDERR_FILENO, "Error creant el socket\n");
-            return -1;
-        }
-
-        struct sockaddr_in server_addr;
-        memset(&server_addr, 0, sizeof(server_addr));
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(port);
-
-        if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0) {
-            write_message(STDERR_FILENO, "Error convertint l'adreça IP\n");
-            close(sock_fd);
-            return -1;
-        }
-
-        if (connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-            close(sock_fd);
-            retries++;
-            write_message(STDERR_FILENO, "Error connectant al servidor, reintentant...\n");
-            sleep(1);
-            continue;
-        }
-
-        
-
-        struct timeval timeout;
-        timeout.tv_sec = TIMEOUT_SECONDS;
-        timeout.tv_usec = 0;
-        setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-        snprintf(buffer, sizeof(buffer), "Connexió establerta amb %s:%d\n", ip, port);
-        write_message(STDERR_FILENO, buffer);
-        return sock_fd;
-    }
-    write_message(STDERR_FILENO, "Error: No s'ha pogut connectar després de múltiples intents.\n");    
-    if (sock_fd >= 0) {
-        Trama trama_desconnexio;
-        inicialitzar_trama(&trama_desconnexio, 0x07, config.username);
-        write(sock_fd, &trama_desconnexio, sizeof(trama_desconnexio));
-        close(sock_fd);
-    }
-
-
-    return -1;
-}
-
-
-
 /**
  * Gestió de la senyal Ctrl+C per tancar correctament Fleck.
  * Envia una trama de desconnexió a Gotham i al worker (si escau) i allibera recursos.
@@ -325,91 +409,26 @@ void gestionar_comanda_list(const char **media_types, size_t count) {
 }
 
 
-
-int solicitar_nou_worker(const char *media_type, const char *file_name, char *worker_ip, int *worker_port) {
-    Trama peticio;
-    char data[245];
-    snprintf(data, sizeof(data), "%s&%s", media_type, file_name);
-    inicialitzar_trama(&peticio, 0x11, data);
-    
-
-    // Enviar la petició a Gotham
-    if (write(sock_fd, &peticio, sizeof(peticio)) != sizeof(peticio)) {
-        write_message(STDOUT_FILENO, "Error enviant petició a Gotham per assignar nou worker.\n");
-        return -1;
+int gestionar_caiguda_worker(const char *media_type, const char *file_name) {
+    write_message(STDERR_FILENO, "[FLECK] Worker desconnectat inesperadament durant la recepció del fitxer.\n");
+    enviar_trama_desconnexio_worker();
+    write_message(STDOUT_FILENO, "[FLECK] Sol·licitant un nou Worker...\n");
+    char new_worker_ip[16];
+    int new_worker_port;
+    if (solicitar_nou_worker(media_type, file_name, new_worker_ip, &new_worker_port) < 0) {
+        close(output_fd);
+        return ERROR_NEW_WORKER;
     }
-    write_message(STDOUT_FILENO, "Trama 0x11 enviada\n");
-    write_message(STDOUT_FILENO, "Esperant resposta de Gotham...\n");
 
-
-
-    // Llegir la resposta de Gotham
-    Trama resposta;
-    if (safe_read(sock_fd, &resposta, sizeof(Trama)) < 0) {
-        write_message(STDOUT_FILENO, "Error rebent resposta de Gotham.\n");
-        return -1;
+    worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
+    if (worker_fd < 0 || validar_connexio_worker() < 0) {
+        close(output_fd);
+        return ERROR_CONNECT_NEW;
     }
-    write_message(STDOUT_FILENO, "Resposta rebuda de Gotham.\n");
-
-    if (!validar_trama(&resposta)) {
-        write_message(STDOUT_FILENO, "Resposta de Gotham invàlida.\n");
-        return -1;
-    }
-    write_message(STDOUT_FILENO, "Resposta rebuda vàlida.\n");
-
-    if (resposta.type != 0x11) {
-        write_message(STDOUT_FILENO, "Resposta de Gotham no és del tipus esperat.\n");
-        return -1;
-    }
-    write_message(STDOUT_FILENO, "Resposta rebuda de tipus 0x11.\n");
-
-
-    if (strcmp(resposta.data, "DISTORT_KO") == 0) {
-        write_message(STDOUT_FILENO, "Error: No hi ha workers disponibles.\n");
-        return -1;
-    } else if (strcmp(resposta.data, "MEDIA_KO") == 0) {
-        write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte.\n");
-        return -1;
-    } else {
-        // Extraer IP y puerto del nuevo Worker manualmente
-        char *delimiter = strchr(resposta.data, '&');
-        if (!delimiter) {
-            write_message(STDOUT_FILENO, "Error: Resposta de Gotham invàlida.\n");
-            return -1;
-        }
-
-        size_t ip_length = delimiter - resposta.data;
-        strncpy(worker_ip, resposta.data, ip_length);
-        worker_ip[ip_length] = '\0'; // Añadir terminador nulo
-
-        *worker_port = atoi(delimiter + 1); // Convertir el puerto a entero
-
-        return 0;
-    }
+    write_message(STDOUT_FILENO, "[FLECK] Nou Worker connectat. Continuant recepció...\n");
+    return 0;
 }
 
-int validar_connexio_worker() {
-    Trama resposta;
-
-    if (safe_read(worker_fd, &resposta, sizeof(Trama)) < 0) {
-        write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut llegir la resposta del Worker\n");
-        close(worker_fd);
-        return -1;
-    }
-
-    if (resposta.type == 0x03 && resposta.data_length == 0) {
-        write_message(STDOUT_FILENO, "[OK] Connexió amb el worker validada.\n");
-        return 0;
-    }
-
-    if (resposta.type == 0x03 && strcmp(resposta.data, "CON_KO") == 0) {
-        write_message(STDOUT_FILENO, "El worker ha rebutjat la connexió.\n");
-        return -1;
-    }
-
-    write_message(STDOUT_FILENO, "[ERROR] Resposta inesperada del worker.\n");
-    return -1;
-}
 
 
 /**
@@ -449,7 +468,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
 
     if (resposta_worker.type != 0x03) {
         write_message(STDOUT_FILENO, "[ERROR] Trama inesperada del Worker\n");
-        close(worker_fd);
+        enviar_trama_desconnexio_worker();
         return -1;
     }
 
@@ -461,7 +480,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
         return -1;
     } else {
         write_message(STDOUT_FILENO, "[ERROR] Resposta inesperada del Worker.\n");
-        close(worker_fd);
+        enviar_trama_desconnexio_worker();
         return -1;
     }
 
@@ -497,28 +516,14 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
     
         if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
             if (errno == ECONNRESET || errno == EPIPE) {
-                write_message(STDOUT_FILENO, "[FLECK] Worker desconnectat durant l'enviament.\n");
-                enviar_trama_desconnexio_worker();
-    
-                // Reconnectar a un nou Worker
-                char new_worker_ip[16];
-                int new_worker_port;
-                if (solicitar_nou_worker("media", file_name, new_worker_ip, &new_worker_port) < 0) {
-                    close(file_fd);
-                    return -1;
+                if (gestionar_caiguda_worker(media_type, file_name) < 0) {
+                    write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
+                    close(output_fd);
+                    return ERROR_WORKER_DOWN;
+                } else {
+                    write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");
+                    continue;  
                 }
-    
-                worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
-                if (worker_fd < 0) {
-                    close(file_fd);
-                    return -1;
-                }
-    
-                if (validar_connexio_worker(worker_fd) < 0) {
-                    close(file_fd);
-                    return -1;
-                }
-    
                 lseek(file_fd, position, SEEK_SET); // Continuar des d'on ens havíem quedat
                 continue;
             } else {
@@ -573,6 +578,7 @@ int enviar_fitxer_worker(const char *file_name, uint32_t file_size, const char *
     return 0;
 }
 
+
 int rebre_fitxer_worker(const char *output_file, const char *media_type, const char *file_name) {
     Trama trama;
     time_t last_print = time(NULL);
@@ -599,11 +605,19 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
                 }
                 continue;  // Tornar a esperar.
             } else {
-                write_message(STDERR_FILENO, "[ERROR] Error llegint del socket del Worker\n");
-                enviar_trama_desconnexio_worker();
-                return ERROR_READ;
+                if (gestionar_caiguda_worker(media_type, file_name) < 0) {
+                    write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
+                    close(output_fd);
+                    return ERROR_WORKER_DOWN;
+                } else {
+                    write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");
+                    continue;  
+                }
             }
+
+                return ERROR_READ;
         }
+    }
 
         if (bytes_read == sizeof(trama)){ 
             write_message(STDOUT_FILENO, "[DEBUG] Trama 0x04 rebuda del Worker.\n");
@@ -612,22 +626,13 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
         
 
         if (bytes_read == 0 || errno == ECONNRESET || errno == EPIPE) {
-            write_message(STDOUT_FILENO, "[FLECK] Worker desconnectat inesperadament.\n");
-            enviar_trama_desconnexio_worker();
-
-            char new_worker_ip[16];
-            int new_worker_port;
-            write_message(STDOUT_FILENO, "[FLECK] Sol·licitant un nou Worker...\n");
-            if (solicitar_nou_worker(media_type, file_name, new_worker_ip, &new_worker_port) < 0) {
-                return ERROR_NEW_WORKER;
+            if (gestionar_caiguda_worker(media_type, file_name) < 0) {
+                write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
+                close(output_fd);
+                return ERROR_WORKER_DOWN;
+            } else {
+                write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");                    continue;  
             }
-
-            worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
-            if (worker_fd < 0 || validar_connexio_worker() < 0) {
-                return ERROR_CONNECT_NEW;
-            }
-            write_message(STDOUT_FILENO, "[FLECK] Nou Worker connectat. Continuant espera de la trama 0x04...\n");
-            continue;  // Tornar a esperar indefinidament.
         }
 
         return ERROR_READ;
@@ -675,23 +680,14 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
             if (errno == ECONNRESET || errno == EPIPE) {
-                write_message(STDERR_FILENO, "[FLECK] Worker desconnectat inesperadament durant la recepció del fitxer.\n");
-                enviar_trama_desconnexio_worker();
-                write_message(STDOUT_FILENO, "[FLECK] Sol·licitant un nou Worker...\n");
-                char new_worker_ip[16];
-                int new_worker_port;
-                if (solicitar_nou_worker(media_type, file_name, new_worker_ip, &new_worker_port) < 0) {
+                if (gestionar_caiguda_worker(media_type, file_name) < 0) {
+                    write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                     close(output_fd);
-                    return ERROR_NEW_WORKER;
+                    return ERROR_WORKER_DOWN;
+                } else {
+                    write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");
+                    continue;  
                 }
-
-                worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
-                if (worker_fd < 0 || validar_connexio_worker() < 0) {
-                    close(output_fd);
-                    return ERROR_CONNECT_NEW;
-                }
-                write_message(STDOUT_FILENO, "[FLECK] Nou Worker connectat. Continuant recepció...\n");
-                continue;
             }
 
             enviar_trama_desconnexio_worker();

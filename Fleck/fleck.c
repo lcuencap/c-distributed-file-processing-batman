@@ -578,7 +578,14 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
             break;
         }
         write_message(STDOUT_FILENO, "[DEBUG] Enviant trama 0x05 al Worker amb info del buffer llegit...\n");
-        inicialitzar_trama(&trama, 0x05, buffer);
+        memset(&trama, 0, sizeof(trama));
+        trama.type = 0x05;
+        trama.data_length = bytes_read;
+        memcpy(trama.data, buffer, bytes_read);
+        trama.timestamp = (uint32_t)time(NULL);
+        trama.checksum = 0;
+        trama.checksum = generate_checksum((uint8_t *)&trama, TRAMA_SIZE - 2);
+    
     
         if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
             write_message(STDOUT_FILENO, "[FLECK] Error enviant la trama al Worker.\n");
@@ -609,6 +616,8 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
     timeout.tv_sec = 0;
     timeout.tv_usec = 0;
     setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    write_message(STDOUT_FILENO, "[FLECK] Fitxer enviat al Worker. Esperant confirmació...\n");
 
     Trama resposta_md5;
     if (safe_read(worker_fd, &resposta_md5, sizeof(Trama)) < 0) {

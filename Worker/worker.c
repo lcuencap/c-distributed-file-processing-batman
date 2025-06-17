@@ -370,8 +370,9 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     snprintf(file_path, sizeof(file_path), "%s", metadata->file_name);
 
     int file_fd = open(file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (file_fd < 0) {
 
+    if (file_fd < 0) {
+        write_message(STDERR_FILENO, "Error obrint el fitxer per escriure\n");
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
         pthread_mutex_unlock(mutex);
@@ -379,33 +380,40 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         enviar_resposta_connexio_inicial(client_socket, 0);
         return -1;
     }
+    write_message(STDOUT_FILENO, "Fitxer obert correctament per escriure.\n");
 
     if (lseek(file_fd, processed_offset, SEEK_SET) < 0) {
+        write_message(STDERR_FILENO, "Error posicionant el fitxer\n");
         close(file_fd);
         enviar_resposta_connexio_inicial(client_socket, 0);
         return -1;
     }
+    write_message(STDOUT_FILENO, "Posició del fitxer ajustada correctament.\n");
 
     while ((bytes_read = read(client_socket, &trama, sizeof(trama))) == sizeof(trama)) {
         if (!validar_trama(&trama)) {
+            write_message(STDERR_FILENO, "Trama invàlida rebuda\n");
             close(file_fd);
             enviar_resposta_md5(client_socket, 0);
             return -1;
         }
         
         if (trama.type != 0x05) {
+            write_message(STDERR_FILENO, "Trama de tipus incorrecte rebuda\n");
             close(file_fd);
             enviar_resposta_md5(client_socket, 0);
             return -1;
         }
 
         if (trama.data_length > sizeof(trama.data)) {
+            write_message(STDERR_FILENO, "Longitud de dades de trama massa gran\n");
             close(file_fd);
             enviar_resposta_md5(client_socket, 0);
             return -1;
         }
 
         if (write(file_fd, trama.data, trama.data_length) != trama.data_length) {
+            write_message(STDERR_FILENO, "Error escrivint dades al fitxer\n");
             close(file_fd);
             enviar_resposta_md5(client_socket, 0);
             return -1;
@@ -414,6 +422,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         pthread_mutex_lock(mutex);
         metadata->processed_offset += trama.data_length;
         if (metadata->processed_offset >= metadata->total_size) {
+            write_message(STDOUT_FILENO, "Fitxer rebut completament.\n");
             pthread_mutex_unlock(mutex);
             break;
         }
@@ -423,6 +432,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     close(file_fd);
 
     if (bytes_read < 0) {
+        write_message(STDERR_FILENO, "Error llegint dades del socket\n");
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
         pthread_mutex_unlock(mutex);
@@ -438,6 +448,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     char md5_str[33];
     uint32_t file_size = 0;
     if (calcular_md5(file_path, md5_str, &file_size) < 0) {
+        write_message(STDERR_FILENO, "Error calculant el MD5 del fitxer rebut\n");
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
         pthread_mutex_unlock(mutex);

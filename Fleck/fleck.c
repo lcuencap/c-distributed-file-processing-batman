@@ -561,12 +561,13 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
         enviar_trama_desconnexio_worker();
         return -1;
     }
-
+    write_message(STDOUT_FILENO, "[FLECK] Fitxer obert correctament per enviar al Worker.\n");
     char buffer[245];
     ssize_t bytes_read;
     off_t position = 0; // Posició actual del fitxer
     
     update_progress_status(file_name, ENVIANT, file_size, 0, total_enviat, 0);
+    write_message(STDOUT_FILENO, "[FLECK] Enviant fitxer al Worker comença...\n");
 
 
 
@@ -576,11 +577,13 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
         if (bytes_read <= 0) {
             break;
         }
-
+        write_message(STDOUT_FILENO, "[DEBUG] Enviant trama 0x05 al Worker amb info del buffer llegit...\n");
         inicialitzar_trama(&trama, 0x05, buffer);
     
         if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
+            write_message(STDOUT_FILENO, "[FLECK] Error enviant la trama al Worker.\n");
             if (errno == ECONNRESET || errno == EPIPE) {
+                write_message(STDOUT_FILENO, "[FLECK] Worker desconnectat inesperadament.\n");
                 if (gestionar_caiguda_worker("ENVIANT", media_type, file_name, file_fd, file_size, md5sum, factor) < 0) {
                     write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                     return ERROR_WORKER_DOWN;
@@ -590,6 +593,7 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
                 lseek(file_fd, position, SEEK_SET); // Continuar des d'on ens havíem quedat
                 continue;
             } else {
+                write_message(STDOUT_FILENO, "[FLECK] Error desconegut, enviant la trama de desconnexio al Worker.\n");
                 close(file_fd);
                 enviar_trama_desconnexio_worker();
                 return -1;

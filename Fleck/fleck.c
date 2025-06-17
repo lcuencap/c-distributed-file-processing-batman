@@ -97,6 +97,12 @@ int solicitar_nou_worker(const char *media_type, const char *file_name, char *wo
     write_message(STDOUT_FILENO, "Trama 0x11 enviada\n");
     write_message(STDOUT_FILENO, "Esperant resposta de Gotham...\n");
 
+    // Eliminar timeout temporalment per esperar la resposta
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
+    setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    
     // Llegir la resposta de Gotham
     Trama resposta;
     if (safe_read(sock_fd, &resposta, sizeof(Trama)) < 0) {

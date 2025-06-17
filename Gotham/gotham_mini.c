@@ -637,7 +637,11 @@ void *gestionar_client_fleck(void *arg) {
                 snprintf(data_resposta, sizeof(data_resposta), "%s&%d", ip_tmp, port_tmp);
                 inicialitzar_trama(&resposta, 0x11, data_resposta);
             }
-            write(client_socket, &resposta, sizeof(resposta));
+            ssize_t bytes_written = write(client_socket, &trama, sizeof(trama));
+            if (bytes_written != sizeof(trama)) {
+                log_event("Error en enviar la trama: write incomplet o fallit.");
+                // opcional: tancar socket, marcar worker com caigut, etc.
+            }
         } else {
             // Tipus desconegut de trama
             char missatge[64];

@@ -104,6 +104,8 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
     free(indexos);
 
     workers[sel].is_primary_worker = 1;
+    workers[sel].last_heartbeat = time(NULL);
+    
 
     Trama promotora;
     inicialitzar_trama(&promotora, 0x08, "");
@@ -114,7 +116,6 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
              "Worker ID %d seleccionat com a nou principal del tipus %d.",
              workers[sel].worker_id, tipus_worker);
     log_event(log_msg);
-    write_message(STDOUT_FILENO, log_msg);
 
     return &workers[sel];
 }
@@ -619,19 +620,24 @@ void *gestionar_client_fleck(void *arg) {
             pthread_mutex_lock(&worker_mutex);
             ConfigWorker *nou_principal = obtenir_principal(tipus_worker);
             if (nou_principal) {
+                char debug_msg[128];
+                snprintf(debug_msg, sizeof(debug_msg),
+                        "[REASSIGN] Nou principal (socket_fd %d) del tipus %d amb id %d.",
+                        nou_principal->base.socket_fd, tipus_worker, nou_principal->worker_id);
                 strncpy(ip_tmp, nou_principal->ip_fleck, sizeof(ip_tmp));
                 ip_tmp[sizeof(ip_tmp) - 1] = '\0';
                 port_tmp = nou_principal->port_fleck;
             }
             pthread_mutex_unlock(&worker_mutex);
-
             if (port_tmp == -1) {
                 inicialitzar_trama(&resposta, 0x11, "DISTORT_KO");
             } else {
+                write_message(STDOUT_FILENO, "[REASSIGN] S'envia 0x11 al fleck amb el nou principal.\n");
                 char data_resposta[64];
                 snprintf(data_resposta, sizeof(data_resposta), "%s&%d", ip_tmp, port_tmp);
                 inicialitzar_trama(&resposta, 0x11, data_resposta);
             }
+            write(client_socket, &resposta, sizeof(resposta));
         } else {
             // Tipus desconegut de trama
             char missatge[64];
@@ -706,7 +712,8 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, exit);
     pthread_create(&fleck_thread, NULL, listener_fleck, NULL);
     pthread_create(&worker_thread, NULL, listener_worker, NULL);
-    pthread_create(&monitor_thread, NULL, monitoritzar_heartbeats, NULL);
+    
+    //pthread_create(&monitor_thread, NULL, monitoritzar_heartbeats, NULL);
 
 
     pthread_join(fleck_thread, NULL);

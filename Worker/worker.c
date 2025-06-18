@@ -594,33 +594,63 @@ void marcar_tasca_com_fallida(TaskMetadata *metadata) {
 }
 
 
+/**
+ * @brief Inicialitza la memòria compartida per a les tasques.
+ * @param shm_name Nom del segment de memòria compartida.
+ * @param shared_mem_fd Descriptor del fitxer de la memòria compartida.
+ * @param shared_mem Punter a la memòria compartida.
+ * @param mem_size Mida total de la memòria compartida.
+ * @param mutex Mutex per a protegir l'accés a la memòria compartida.
+ */
 void inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, void **shared_mem, 
                                      size_t mem_size, pthread_mutex_t *mutex) {
     *shared_mem_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0644);
     if (*shared_mem_fd < 0) {
+        perror("shm_open");
         exit(1);
     }
-    
+
     if (ftruncate(*shared_mem_fd, mem_size) < 0) {
+        perror("ftruncate");
         shm_unlink(shm_name);
         exit(1);
     }
 
     *shared_mem = mmap(NULL, mem_size, PROT_READ | PROT_WRITE, MAP_SHARED, *shared_mem_fd, 0);
     if (*shared_mem == MAP_FAILED) {
+        perror("mmap");
         shm_unlink(shm_name);
         exit(1);
     }
 
     pthread_mutex_lock(mutex);
-    int *worker_count = (int *)(*shared_mem);
-    if (*worker_count == 0) {
-        memset(*shared_mem, 0, mem_size);
+
+    // Netegem només si tota la memòria és zero (primera execució real)
+    int is_all_zero = 1;
+    for (size_t i = 0; i < mem_size; i++) {
+        if (*((char *)(*shared_mem) + i) != 0) {
+            is_all_zero = 0;
+            break;
+        }
     }
+
+    if (is_all_zero) {
+        memset(*shared_mem, 0, mem_size);
+        write_message(STDOUT_FILENO, "[DEBUG] Memòria compartida inicialitzada a zero.\n");
+    }
+
+    // Ara que sabem que és segura
+    int *worker_count = (int *)(*shared_mem);
     (*worker_count)++;
+
     pthread_mutex_unlock(mutex);
 }
 
+/**
+ * @brief Volca el contingut de la memòria compartida a la sortida estàndard.
+ * @param shared_mem Punter a la memòria compartida.
+ * @param mem_size Mida total de la memòria compartida.
+ */
 void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
     write_message(STDOUT_FILENO, "\n================== DUMP DE MEMÒRIA COMPARTIDA ==================\n");
 
@@ -652,13 +682,50 @@ void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
     write_message(STDOUT_FILENO, "==============================================================\n\n");
 }
 
+/**
+ * Elimina totes les tasques de la memòria compartida (reseteig complet).
+ * @param shared_mem Punter a la memòria compartida.
+ * @param mem_size Mida total de la memòria compartida.
+ */
+void netejar_memoria_tasques(void *shared_mem, size_t mem_size, pthread_mutex_t *shared_mem_mutex) {
+    pthread_mutex_lock(shared_mem_mutex);
 
+    char *ptr = (char *)shared_mem;
+    size_t offset = 0;
+    int comptador = 0;
+
+    while (offset + sizeof(TaskMetadata) <= mem_size) {
+        TaskMetadata *task = (TaskMetadata *)(ptr + offset);
+
+        if (strlen(task->file_name) > 0) {
+            memset(task, 0, sizeof(TaskMetadata));
+            comptador++;
+        }
+
+        offset += sizeof(TaskMetadata);
+    }
+
+    pthread_mutex_unlock(shared_mem_mutex);
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "[DEBUG] %d tasques eliminades de la memòria compartida.\n", comptador);
+    write_message(STDOUT_FILENO, msg);
+}
+
+/**
+ * @brief Busca una tasca per nom a la memòria compartida.
+ * @param shared_mem Punter a la memòria compartida.
+ * @param current_mem_size Mida actual de la memòria compartida.
+ * @param file_name Nom del fitxer a buscar.
+ * @param mutex Mutex per a protegir l'accés a la memòria compartida.
+ * @return Punter a la metadada de la tasca trobada, o NULL si no s'ha trobat.
+ */
 TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, const char *file_name,
                                    pthread_mutex_t *mutex) {
-                                    
-    pthread_mutex_lock(&shared_mem_mutex);
+
+    pthread_mutex_lock(mutex);
     volcar_memoria_tasques(shared_mem, current_mem_size);
-    pthread_mutex_unlock(&shared_mem_mutex);
+    pthread_mutex_unlock(mutex);
 
     pthread_mutex_lock(mutex);
 

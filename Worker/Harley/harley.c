@@ -490,8 +490,12 @@ int main(int argc, char *argv[]) {
     }
 
 
+
     inicialitzar_memoria_compartida("/harley_shared_mem", &shared_mem_fd, &shared_mem, 
-                                    current_mem_size, &shared_mem_mutex);    
+                                    current_mem_size, &shared_mem_mutex); 
+                                    
+    netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
+   
 
     inicialitzar_connexio_gotham(&config);
     int flags = fcntl(config.base.socket_fd, F_GETFL, 0);

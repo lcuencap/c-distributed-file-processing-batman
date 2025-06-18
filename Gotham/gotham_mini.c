@@ -57,6 +57,7 @@ void log_event(const char *event) {
 }
 
 
+
 /*
 * Envia una trama d'error quan es rebutja una trama per format o checksum incorrecte.
 * Aquesta funció registra l'esdeveniment i envia una resposta al socket especificat.    
@@ -744,7 +745,7 @@ int main(int argc, char *argv[]) {
     pthread_create(&fleck_thread, NULL, listener_fleck, NULL);
     pthread_create(&worker_thread, NULL, listener_worker, NULL);
     
-    pthread_create(&monitor_thread, NULL, monitoritzar_heartbeats, NULL);
+    //pthread_create(&monitor_thread, NULL, monitoritzar_heartbeats, NULL);
 
 
     pthread_join(fleck_thread, NULL);

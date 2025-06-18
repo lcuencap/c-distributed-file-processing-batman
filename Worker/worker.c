@@ -396,6 +396,19 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     metadata->status = TASK_RECEIVING;
     pthread_mutex_unlock(mutex);  
 
+    if (metadata->processed_offset >= metadata->total_size) {
+        write_message(STDOUT_FILENO, "[HARLEY] Tasca ja completada. Saltant recepció i iniciant compressió...\n");
+        metadata->status = TASK_PROCESSING;
+    } else {
+        write_message(STDOUT_FILENO, "[HARLEY] Iniciant recepció de fitxer...\n");
+        if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
+            write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
+            return NULL;
+        }
+        metadata->status = TASK_PROCESSING;
+    }
+
+
     while ((bytes_read = read(client_socket, &trama, sizeof(trama))) == sizeof(trama)) {
         if (!validar_trama(&trama)) {
             write_message(STDERR_FILENO, "Trama invàlida rebuda\n");
@@ -492,6 +505,8 @@ void enqueue_connection(int client_socket, int* connection_queue, int* queue_rea
     pthread_mutex_lock(queue_mutex);
     while (*queue_count == MAX_QUEUE_SIZE)
     pthread_cond_wait(queue_not_full, queue_mutex);
+
+    write_message(STDOUT_FILENO, "[DEBUG] Enqueuing new connection.\n");
 
     connection_queue[*queue_rear] = client_socket;
     *queue_rear = (*queue_rear + 1) % MAX_QUEUE_SIZE;

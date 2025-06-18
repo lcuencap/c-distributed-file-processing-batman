@@ -310,6 +310,15 @@ void listener_harley_principal(ConfigWorker *config) {
         close(server_fd);
         exit(EXIT_FAILURE);
     }
+    char info[256];
+    time_t now = time(NULL);
+    strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
+
+    char msg[512];
+    snprintf(msg, sizeof(msg), "%s Worker Harley principal escoltant connexions a %s:%d\n", 
+            info, config->ip_fleck, config->port_fleck);
+    write_message(STDOUT_FILENO, msg);
+
 
     write_message(STDOUT_FILENO, "Worker Harley principal iniciat i escoltant connexions...\n");
 
@@ -396,6 +405,7 @@ void *gotham_listener_thread(void *arg) {
                 write_message(STDOUT_FILENO, "Gotham ha confirmat la connexió.\n");
                 break;
             case 0x08:
+                write_message(STDOUT_FILENO, "Gotham ha enviat una trama de promoció.\n");
                 config->is_primary_worker = 1;
                 pthread_t harley_thread;
                 pthread_create(&harley_thread, NULL, listener_harley_wrapper, config);

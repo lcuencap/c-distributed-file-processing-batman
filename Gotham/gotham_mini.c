@@ -177,6 +177,10 @@ void eliminar_worker_per_socket(int socket_fd) {
     pthread_mutex_unlock(&worker_mutex);
 }
 
+/**
+ * Monitoritza els heartbeats dels workers i elimina els que superin el timeout.
+ * Aquesta funció s'executa en un thread separat.
+ */
 void *monitoritzar_heartbeats(void *arg) {
     (void)arg;
 
@@ -298,7 +302,10 @@ void afegir_worker(ConfigWorker new_worker) {
     pthread_mutex_unlock(&worker_mutex);
 }
 
-
+/**
+ * Thread que gestiona les connexions dels workers.
+ * Accepta connexions entrants i crea un nou thread per cada worker.
+ */
 void *handle_worker(void *arg) {
     int worker_socket = *(int *)arg;
     free(arg);
@@ -418,6 +425,10 @@ void *handle_worker(void *arg) {
     return NULL;
 }
 
+/**
+ * Thread que escolta les connexions dels workers.
+ * Accepta connexions entrants i crea un nou thread per gestionar cada worker.
+ */
 void *listener_worker(void *arg) {
     (void)arg;
     struct sockaddr_in address;
@@ -511,6 +522,10 @@ void construir_data_worker(const ConfigWorker *worker, char *buffer) {
     }
 }
 
+/**
+ * Thread que gestiona les connexions dels clients Fleck.
+ * Accepta connexions entrants i crea un nou thread per cada client.
+ */
 void *gestionar_client_fleck(void *arg) {
     int client_socket = *(int *)arg;
     free(arg);  // Liberar la memoria del socket pasado por puntero
@@ -668,6 +683,10 @@ void *gestionar_client_fleck(void *arg) {
     return NULL;
 }
 
+/**
+ * Thread que escolta les connexions dels clients Fleck.
+ * Accepta connexions entrants i crea un nou thread per gestionar cada client.
+ */
 void *listener_fleck(void *arg) {
     (void)arg;
     int server_fd;
@@ -709,6 +728,13 @@ void *listener_fleck(void *arg) {
     return NULL;
 }
 
+/**
+ * Funció principal del programa.
+ * Inicialitza la configuració, crea els threads i espera que acabin.
+ * @param argc Nombre d'arguments de la línia de comandes.
+ * @param argv Arguments de la línia de comandes.
+ * @return Retorna 0 si tot ha anat bé, 1 si hi ha hagut un error.
+ */
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Us: ./gotham_mini <fitxer_configuracio>\n");

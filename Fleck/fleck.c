@@ -160,7 +160,14 @@ int connectar_a_server(const char *ip, int port) {
     int sock_fd = -1;
 
     while (retries < MAX_RETRIES) {
-        snprintf(buffer, sizeof(buffer), "Intentant connectar a %s:%d (Intent %d/%d)\n", ip, port, retries + 1, MAX_RETRIES);
+        time_t now = time(NULL);
+        char timestamp[64];
+        strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
+
+        snprintf(buffer, sizeof(buffer), "%s Intentant connectar a %s:%d (Intent %d/%d)\n",
+                timestamp, ip, port, retries + 1, MAX_RETRIES);
+
+        
         write_message(STDERR_FILENO, buffer);
 
         sock_fd = socket(AF_INET, SOCK_STREAM, 0);

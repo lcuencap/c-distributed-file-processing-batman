@@ -31,15 +31,31 @@ pthread_mutex_t arkham_mutex = PTHREAD_MUTEX_INITIALIZER;
  */
 void log_event(const char *event) {
     pthread_mutex_lock(&arkham_mutex);
-    time_t now = time(NULL);
-    char timestamp[64];
-    strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
 
-    char log_msg[512];
-    snprintf(log_msg, sizeof(log_msg), "%s %s\n", timestamp, event);
-    write(log_pipe_fd[1], log_msg, strlen(log_msg));
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", tm_info);
+
+    size_t total_len = strlen(timestamp) + strlen(event) + 3; // +3 per espai, \n i \0
+    char *log_msg = malloc(total_len);
+    if (!log_msg) {
+        pthread_mutex_unlock(&arkham_mutex);
+        write_message(STDERR_FILENO, "[ARKHAM] Error reservant memòria per al log.\n");
+        return; 
+    }
+
+    snprintf(log_msg, total_len, "%s %s\n", timestamp, event);
+
+    if (write(log_pipe_fd[1], log_msg, strlen(log_msg)) < 0) {
+        write_message(STDOUT_FILENO, "[ARKHAM] Error escrivint al log.\n");
+    }
+
+    free(log_msg);
     pthread_mutex_unlock(&arkham_mutex);
 }
+
 
 /*
 * Envia una trama d'error quan es rebutja una trama per format o checksum incorrecte.
@@ -47,7 +63,6 @@ void log_event(const char *event) {
 * @param socket_fd El descriptor de fitxer del socket on enviar la resposta.
 * @param origen Opcional: cadena que indica l'origen de la trama rebutjada.
 */
-
 void respondre_trama_erronia(int socket_fd, const char *origen) {
     if (origen) {
         char log_msg[128];
@@ -134,16 +149,11 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
 
 void eliminar_worker_per_socket(int socket_fd) {
     pthread_mutex_lock(&worker_mutex);
-    write_message(STDOUT_FILENO, "[DEBUG] S'ha fet mutex lock a eliminar_worker_per_socket.\n");
-
 
     for (int i = 0; i < num_workers; i++) {
-        write_message(STDOUT_FILENO, "[DEBUG] Entrem al for num_workers.\n");
         if (workers[i].base.socket_fd == socket_fd) {
             int tipus_worker = workers[i].base.type;
             int era_principal = workers[i].is_primary_worker;
-            write_message(STDOUT_FILENO, "[DEBUG] S'ha trobat el worker a eliminar.\n");
-
             free(workers[i].base.ip);
             free(workers[i].ip_fleck);
 
@@ -152,18 +162,15 @@ void eliminar_worker_per_socket(int socket_fd) {
             }
 
             num_workers--;
-            write_message(STDOUT_FILENO, "[DEBUG] S'ha eliminat el worker de la llista, fem realloc.\n");
             // Redimensionar l'array de workers 
 
             workers = realloc(workers, num_workers * sizeof(ConfigWorker));
             if (workers == NULL && num_workers > 0) {
                 log_event("Error real·locant memòria en eliminar worker.");
             }
-            write_message(STDOUT_FILENO, "[DEBUG] S'ha fet realloc a l'array de workers.\n");
 
             // Reassignar si cal
             if (era_principal) {
-                write_message(STDOUT_FILENO, "[DEBUG] El worker era principal, seleccionant nou principal.\n");
                 ConfigWorker *nou = seleccionar_nou_principal(tipus_worker);
                 if (!nou) {
                     log_event("No hi ha cap altre worker per reassignar com a principal.");
@@ -351,20 +358,13 @@ void *handle_worker(void *arg) {
 
             // Mensaje tipo
             const char *tipus = (new_worker.base.type == ENIGMA) ? "ENIGMA" : "HARLEY";
-            int len1 = snprintf(NULL, 0, "Worker registrat com a tipus: %s\n", tipus) + 1;
-            char *msg1 = malloc(len1);
-            if (msg1) {
-                snprintf(msg1, len1, "Worker registrat com a tipus: %s\n", tipus);
-                write_message(STDOUT_FILENO, msg1);
-                free(msg1);
-            }
 
             // Mensaje registro
-            int len2 = snprintf(NULL, 0, "Worker registrat: %s:%d (type: %s)\n", workerIP, new_worker.port_fleck, workerType) + 1;
+            int len2 = snprintf(NULL, 0, "Worker registrat: %s:%d (type: %s)\n", workerIP, new_worker.port_fleck, tipus) + 1;
             char *msg2 = malloc(len2);
             if (msg2) {
-                snprintf(msg2, len2, "Worker registrat: %s:%d (type: %s)\n", workerIP, new_worker.port_fleck, workerType);
-                write_message(STDOUT_FILENO, msg2);
+                snprintf(msg2, len2, "Worker registrat: %s:%d (%s)\n", workerIP, new_worker.port_fleck, workerType);
+                log_event(msg2);
                 free(msg2);
             }
         } else if (trama.type == 0x07) {
@@ -388,14 +388,6 @@ void *handle_worker(void *arg) {
             log_event("Trama 0x07 rebuda: worker sol·licita desconnexió.");
             eliminar_worker_per_socket(worker_socket);
         } else if (trama.type == 0x12) {
-            int len5 = snprintf(NULL, 0, "Worker %s ha enviat un heartbeat\n", trama.data) + 1;
-            char *msg5 = malloc(len5);
-            if (msg5) {
-                snprintf(msg5, len5, "Worker %s ha enviat un heartbeat\n", trama.data);
-                write_message(STDOUT_FILENO, msg5);
-                free(msg5);
-            }
-
             pthread_mutex_lock(&worker_mutex);
             for (int i = 0; i < num_workers; i++) {
                 if (workers[i].base.socket_fd == worker_socket) {

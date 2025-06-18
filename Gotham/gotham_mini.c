@@ -752,7 +752,7 @@ int main(int argc, char *argv[]) {
     pthread_create(&fleck_thread, NULL, listener_fleck, NULL);
     pthread_create(&worker_thread, NULL, listener_worker, NULL);
     
-    //pthread_create(&monitor_thread, NULL, monitoritzar_heartbeats, NULL);
+    pthread_create(&monitor_thread, NULL, monitoritzar_heartbeats, NULL);
 
 
     pthread_join(fleck_thread, NULL);

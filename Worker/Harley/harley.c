@@ -309,14 +309,13 @@ void listener_harley_principal(ConfigWorker *config) {
         close(server_fd);
         exit(EXIT_FAILURE);
     }
-    
-
 
     if (listen(server_fd, 10) < 0) {
         write_message(STDERR_FILENO, "[HARLEY] Error en el listen del socket del servidor.\n");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
+    
     char info[256];
     time_t now = time(NULL);
     strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));

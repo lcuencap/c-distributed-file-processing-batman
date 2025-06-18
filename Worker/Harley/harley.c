@@ -295,6 +295,8 @@ void listener_harley_principal(ConfigWorker *config) {
         write_message(STDERR_FILENO, "[HARLEY] Error creant el socket del servidor.\n");
         exit(EXIT_FAILURE);
     }
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));  // ✅ ESTA LÍNEA
 
     struct sockaddr_in address = {
         .sin_family = AF_INET,

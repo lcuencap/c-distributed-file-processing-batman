@@ -213,6 +213,8 @@ void *worker_loop(void *arg) {
 
 void listener_enigma_principal(ConfigWorker *config) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));  // ✅ ESTA LÍNEA
     struct sockaddr_in addr = {.sin_family = AF_INET, .sin_port = htons(config->port_fleck)};
     addr.sin_addr.s_addr = inet_addr(config->ip_fleck);
     bind(server_fd, (struct sockaddr *)&addr, sizeof(addr));

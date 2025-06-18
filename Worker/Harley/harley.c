@@ -52,16 +52,52 @@ int verificar_checksum(const char *file_name, const char *received_checksum) {
 int processar_media(const char *file_name, int factor) {
     char mutable_file_name[256];
     strncpy(mutable_file_name, file_name, sizeof(mutable_file_name));
+    mutable_file_name[sizeof(mutable_file_name) - 1] = '\0';  // Assegura nul final
+
+    // 🔍 DEBUG: mostrar nom del fitxer
+    char debug_msg[512];
+    snprintf(debug_msg, sizeof(debug_msg), "[DEBUG] processar_media: Fitxer a processar: '%s'\n", mutable_file_name);
+    write_message(STDOUT_FILENO, debug_msg);
+
+    // 📁 DEBUG: mostrar directori actual i comprovar existència del fitxer
+    char cwd[512];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        char path_msg[512];
+        snprintf(path_msg, sizeof(path_msg), "[DEBUG] Directori actual: %s\n", cwd);
+        write_message(STDOUT_FILENO, path_msg);
+    } else {
+        write_message(STDERR_FILENO, "[DEBUG] No s'ha pogut obtenir el directori actual\n");
+    }
+
+    if (access(mutable_file_name, F_OK) == 0) {
+        write_message(STDOUT_FILENO, "[DEBUG] El fitxer existeix i és accessible.\n");
+    } else {
+        write_message(STDERR_FILENO, "[DEBUG] El fitxer NO existeix o no és accessible.\n");
+    }
+
   
+    int result;
+
     if (strstr(file_name, ".wav")) {
-        int result = SO_compressAudio(mutable_file_name, factor);
+        write_message(STDOUT_FILENO, "[HARLEY] Processant fitxer d'àudio .wav...\n");
+        result = SO_compressAudio(mutable_file_name, factor);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "[HARLEY] Compressió d'àudio finalitzada, resultat: %d\n", result);
+        write_message(STDOUT_FILENO, msg);
         return result;
-    } else if (strstr(file_name, ".jpg") || strstr(file_name, ".png")) {  
-        int result = SO_compressImage(mutable_file_name, factor);
-        return result;    
+
+    } else if (strstr(file_name, ".jpg") || strstr(file_name, ".png")) {
+        write_message(STDOUT_FILENO, "[HARLEY] Processant imatge...\n");
+        result = SO_compressImage(mutable_file_name, factor);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "[HARLEY] Compressió d'imatge finalitzada, resultat: %d\n", result);
+        write_message(STDOUT_FILENO, msg);
+        return result;
+
     } else if (strstr(file_name, ".mp3")) {
         write_message(STDERR_FILENO, "Error: .mp3 no suportat. Només .wav.\n");
         return ERROR_NOT_WAV;
+
     } else {
         write_message(STDERR_FILENO, "Error: Tipus de fitxer no suportat per a compressió.\n");
         return ERROR_UNSUPPORTED_FORMAT;
@@ -204,7 +240,7 @@ void *handle_task(void *arg) {
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         return NULL;
     }
-    
+
     metadata->status = TASK_PROCESSING;
     write_message(STDOUT_FILENO, "[HARLEY] Fitxer rebut correctament, iniciant compressió...\n");
     
@@ -214,6 +250,7 @@ void *handle_task(void *arg) {
     
     if (processar_media(file_name, factor) != NO_ERROR) {
         write_message(STDERR_FILENO, "Error processant el fitxer.\n");
+
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         return NULL;
     }

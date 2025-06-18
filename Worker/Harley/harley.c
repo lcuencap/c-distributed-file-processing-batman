@@ -204,6 +204,7 @@ void *handle_task(void *arg) {
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         return NULL;
     }
+    
     metadata->status = TASK_PROCESSING;
     write_message(STDOUT_FILENO, "[HARLEY] Fitxer rebut correctament, iniciant compressió...\n");
     

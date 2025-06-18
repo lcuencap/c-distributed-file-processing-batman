@@ -398,16 +398,8 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
 
     if (metadata->processed_offset >= metadata->total_size) {
         write_message(STDOUT_FILENO, "[HARLEY] Tasca ja completada. Saltant recepció i iniciant compressió...\n");
-        metadata->status = TASK_PROCESSING;
-    } else {
-        write_message(STDOUT_FILENO, "[HARLEY] Iniciant recepció de fitxer...\n");
-        if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
-            write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
-            return NULL;
-        }
-        metadata->status = TASK_PROCESSING;
+        return 0;  // Si ja s'ha processat completament, no cal rebre fitxer
     }
-
 
     while ((bytes_read = read(client_socket, &trama, sizeof(trama))) == sizeof(trama)) {
         if (!validar_trama(&trama)) {

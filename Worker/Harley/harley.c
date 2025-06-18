@@ -292,6 +292,7 @@ void listener_harley_principal(ConfigWorker *config) {
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
+        write_message(STDERR_FILENO, "[HARLEY] Error creant el socket del servidor.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -302,6 +303,7 @@ void listener_harley_principal(ConfigWorker *config) {
     };
 
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        write_message(STDERR_FILENO, "[HARLEY] Error en el bind del socket del servidor.\n");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
@@ -309,6 +311,7 @@ void listener_harley_principal(ConfigWorker *config) {
 
 
     if (listen(server_fd, 10) < 0) {
+        write_message(STDERR_FILENO, "[HARLEY] Error en el listen del socket del servidor.\n");
         close(server_fd);
         exit(EXIT_FAILURE);
     }

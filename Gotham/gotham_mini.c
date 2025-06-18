@@ -105,6 +105,11 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
 
     workers[sel].is_primary_worker = 1;
     workers[sel].last_heartbeat = time(NULL);
+    if (pos == 0) {
+        write_message(STDOUT_FILENO, "[DEBUG] No hi ha candidats per promoure com a principal!\n");
+        return NULL;
+    }
+
     
 
     Trama promotora;
@@ -619,6 +624,10 @@ void *gestionar_client_fleck(void *arg) {
 
             pthread_mutex_lock(&worker_mutex);
             ConfigWorker *nou_principal = obtenir_principal(tipus_worker);
+            if (!nou_principal) {
+                write_message(STDOUT_FILENO, "[REASSIGN] Cap principal trobat després d’eliminar. Forçant promoció.\n");
+                nou_principal = seleccionar_nou_principal(tipus_worker);
+            }
             if (nou_principal) {
                 char debug_msg[128];
                 snprintf(debug_msg, sizeof(debug_msg),
@@ -637,7 +646,7 @@ void *gestionar_client_fleck(void *arg) {
                 snprintf(data_resposta, sizeof(data_resposta), "%s&%d", ip_tmp, port_tmp);
                 inicialitzar_trama(&resposta, 0x11, data_resposta);
             }
-            ssize_t bytes_written = write(client_socket, &trama, sizeof(trama));
+            ssize_t bytes_written = write(client_socket, &resposta, sizeof(resposta));
             if (bytes_written != sizeof(trama)) {
                 log_event("Error en enviar la trama: write incomplet o fallit.");
                 // opcional: tancar socket, marcar worker com caigut, etc.

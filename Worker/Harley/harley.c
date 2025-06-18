@@ -203,6 +203,7 @@ void *handle_task(void *arg) {
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         return NULL;
     }
+    metadata->status = TASK_PROCESSING;
     write_message(STDOUT_FILENO, "[HARLEY] Fitxer rebut correctament, iniciant compressió...\n");
     
     write_message(STDOUT_FILENO, "[HARLEY] Executant processar_media per fitxer: ");
@@ -315,7 +316,7 @@ void listener_harley_principal(ConfigWorker *config) {
         close(server_fd);
         exit(EXIT_FAILURE);
     }
-    
+
     char info[256];
     time_t now = time(NULL);
     strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));

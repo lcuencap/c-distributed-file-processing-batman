@@ -45,6 +45,8 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     // **Actualizar punteros**
     *shared_mem = new_mem;
     *current_mem_size = nueva_mem_size;
+    
+    write_message(STDOUT_FILENO, "[DEBUG][ALLOC] Memòria compartida ampliada per manca d'espai.\n");
 
     return 0;
 }
@@ -389,6 +391,10 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         return -1;
     }
     write_message(STDOUT_FILENO, "Posició del fitxer ajustada correctament.\n");
+    
+    pthread_mutex_lock(mutex);
+    metadata->status = TASK_RECEIVING;
+    pthread_mutex_unlock(mutex);  
 
     while ((bytes_read = read(client_socket, &trama, sizeof(trama))) == sizeof(trama)) {
         if (!validar_trama(&trama)) {
@@ -428,8 +434,13 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         }
         pthread_mutex_unlock(mutex);
     }
+    write_message(STDOUT_FILENO, "[DEBUG][RECEPCIÓ] Fitxer rebut completament. Offset actual: ");
+    char msg[64];
+    snprintf(msg, sizeof(msg), "%u\n", metadata->processed_offset);
+    write_message(STDOUT_FILENO, msg);
 
     close(file_fd);
+
 
     if (bytes_read < 0) {
         write_message(STDERR_FILENO, "Error llegint dades del socket\n");
@@ -497,8 +508,6 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
                                    void **shared_mem_ptr, size_t *mem_size,
                                    int shared_mem_fd, pthread_mutex_t *mutex) {
     pthread_mutex_lock(mutex);
-    write_message(STDOUT_FILENO, "S'ha fet lock del shared_mem_mutex a alloc_task_metadata.\n");
-
     TaskMetadata *iter = (TaskMetadata *)(*shared_mem_ptr);
     size_t num_entries = *mem_size / sizeof(TaskMetadata);
     TaskMetadata *found = NULL;
@@ -519,6 +528,9 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
         iter = (TaskMetadata *)(*shared_mem_ptr);
         found = &iter[*mem_size / sizeof(TaskMetadata) - 1];  // Última posició
     }
+    
+
+
 
     memset(found, 0, sizeof(TaskMetadata));
     strncpy(found->file_name, file_name, sizeof(found->file_name));
@@ -527,6 +539,12 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
     found->bytes_sent = 0;
     found->status = TASK_RECEIVING;
     strncpy(found->checksum, checksum, MD5SUM_LENGTH);
+
+    char msg[256];
+    snprintf(msg, sizeof(msg),
+            "[DEBUG][ALLOC] Nova tasca guardada a memòria: %s | size=%u | checksum=%s | offset=%u",
+            found->file_name, found->total_size, found->checksum, found->processed_offset);
+    write_message(STDOUT_FILENO, msg);
 
     pthread_mutex_unlock(mutex);
     return found;
@@ -620,6 +638,19 @@ TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, co
     }
 
     pthread_mutex_unlock(mutex);
+
+    if (found_metadata) {
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                "[DEBUG][BUSCAR] Tasca trobada: %s | estat=%d | offset=%u",
+                found_metadata->file_name, found_metadata->status, found_metadata->processed_offset);
+        write_message(STDOUT_FILENO, msg);
+    } else {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "[DEBUG][BUSCAR] No s'ha trobat cap tasca amb nom: %s", file_name);
+        write_message(STDOUT_FILENO, msg);
+    }
+
     return found_metadata;
 }
 

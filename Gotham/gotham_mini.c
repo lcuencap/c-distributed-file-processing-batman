@@ -74,43 +74,44 @@ ConfigWorker* obtenir_principal(InstanceType tipus_worker) {
     return NULL;
 }
 
+/**
+ * Selecciona un nou worker principal del tipus especificat.
+ * Si no hi ha candidats, retorna NULL.
+ * @param tipus_worker Tipus de worker a seleccionar (ENIGMA o HARLEY).
+ * @return Retorna un punter al nou worker principal, o NULL si no n'hi ha cap candidat.
+ */
 ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
     write_message(STDOUT_FILENO, "🔍 seleccionant nou principal...\n");
-    
-    int total = 0;
+
+    int *indexos = malloc(num_workers * sizeof(int));  // en el pitjor cas, tots podrien ser candidats
+    if (!indexos) {
+        write_message(STDERR_FILENO, "Error: no s'ha pogut reservar memòria per seleccionar nou principal.\n");
+        return NULL;
+    }
+
+    int pos = 0;
     for (int i = 0; i < num_workers; i++) {
         char debug[128];
         snprintf(debug, sizeof(debug), "Worker ID %d, tipus %d, principal: %d\n",
                 workers[i].worker_id, workers[i].base.type, workers[i].is_primary_worker);
-        total++;
         write_message(STDOUT_FILENO, debug);
-    }
 
-    if (total == 0) {
-        pthread_mutex_unlock(&worker_mutex);
-        return NULL;
-    }
-
-    // Crear llista d’índexs
-    int *indexos = malloc(total * sizeof(int));
-    int pos = 0;
-    for (int i = 0; i < num_workers; i++) {
         if (workers[i].base.type == tipus_worker && !workers[i].is_primary_worker) {
             indexos[pos++] = i;
         }
     }
 
-    int sel = indexos[rand() % total];
+    if (pos == 0) {
+        write_message(STDOUT_FILENO, "[DEBUG] No hi ha candidats per promoure com a principal!\n");
+        free(indexos);
+        return NULL;
+    }
+
+    int sel = indexos[rand() % pos];
     free(indexos);
 
     workers[sel].is_primary_worker = 1;
     workers[sel].last_heartbeat = time(NULL);
-    if (pos == 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] No hi ha candidats per promoure com a principal!\n");
-        return NULL;
-    }
-
-    
 
     Trama promotora;
     inicialitzar_trama(&promotora, 0x08, "");
@@ -124,7 +125,6 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
 
     return &workers[sel];
 }
-
 
 /**
  * elimina un worker de la llista de workers.

@@ -391,7 +391,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         return -1;
     }
     write_message(STDOUT_FILENO, "Posició del fitxer ajustada correctament.\n");
-    
+
     pthread_mutex_lock(mutex);
     metadata->status = TASK_RECEIVING;
     pthread_mutex_unlock(mutex);  
@@ -621,8 +621,45 @@ void inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, v
     pthread_mutex_unlock(mutex);
 }
 
+void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
+    write_message(STDOUT_FILENO, "\n================== DUMP DE MEMÒRIA COMPARTIDA ==================\n");
+
+    char *ptr = (char *)shared_mem;
+    size_t offset = 0;
+    int index = 0;
+
+    while (offset + sizeof(TaskMetadata) <= mem_size) {
+        TaskMetadata *task = (TaskMetadata *)(ptr + offset);
+
+        // Considerem que una tasca vàlida té un nom de fitxer no buit
+        if (strlen(task->file_name) > 0) {
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                "[%d] Nom: %s | Estat: %d | Total: %u | Offset: %u | Enviats: %u | Checksum: %s\n",
+                index, task->file_name, task->status, task->total_size,
+                task->processed_offset, task->bytes_sent, task->checksum);
+            write_message(STDOUT_FILENO, msg);
+            index++;
+        }
+
+        offset += sizeof(TaskMetadata);
+    }
+
+    if (index == 0) {
+        write_message(STDOUT_FILENO, "Cap tasca trobada a la memòria compartida.\n");
+    }
+
+    write_message(STDOUT_FILENO, "==============================================================\n\n");
+}
+
+
 TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, const char *file_name,
                                    pthread_mutex_t *mutex) {
+                                    
+    pthread_mutex_lock(&shared_mem_mutex);
+    volcar_memoria_tasques(shared_mem, current_mem_size);
+    pthread_mutex_unlock(&shared_mem_mutex);
+
     pthread_mutex_lock(mutex);
 
     char *shared_mem_ptr = shared_mem;

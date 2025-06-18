@@ -288,6 +288,8 @@ void *worker_loop(void *arg) {
  * @brief Escoltar connexions entrants i gestionar la possible desconnexió de Fleck.
  */
 void listener_harley_principal(ConfigWorker *config) {
+    write_message(STDOUT_FILENO, "[Harley] Entrem al thread de listener de flecks.\n");
+
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         exit(EXIT_FAILURE);
@@ -363,6 +365,7 @@ void listener_harley_principal(ConfigWorker *config) {
 }
 
 void *listener_harley_wrapper(void *arg) {
+    write_message(STDOUT_FILENO, "[Harley] Entrem al wrapper del thread.\n");
     listener_harley_principal((ConfigWorker *)arg);
     return NULL;
 }
@@ -405,9 +408,19 @@ void *gotham_listener_thread(void *arg) {
                 write_message(STDOUT_FILENO, "Gotham ha confirmat la connexió.\n");
                 break;
             case 0x08:
-                write_message(STDOUT_FILENO, "Gotham ha enviat una trama de promoció.\n");
+                char info[256];
+                time_t now = time(NULL);
+                strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
+
+                char msg[512];
+                snprintf(msg, sizeof(msg), "%s Gotham ha enviat una trama de promoció.\n", 
+                        info);
+                write_message(STDOUT_FILENO, msg);
+
                 config->is_primary_worker = 1;
+                write_message(STDOUT_FILENO, "Harley ara és el worker principal.\n");
                 pthread_t harley_thread;
+                write_message(STDOUT_FILENO, "[Harley] Iniciant thread per a Flecks...\n");
                 pthread_create(&harley_thread, NULL, listener_harley_wrapper, config);
                 pthread_detach(harley_thread); 
                 break;

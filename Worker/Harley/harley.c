@@ -34,6 +34,23 @@ pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 volatile sig_atomic_t keep_running = 1;
 
 
+
+void mostrar_estat_fitxer(const char *nom) {
+    struct stat st;
+    if (stat(nom, &st) == 0) {
+        char dbg[512];
+        snprintf(dbg, sizeof(dbg),
+            "[DEBUG][FITXER] '%s' -> mida: %ld bytes, permisos: %o\n",
+            nom, st.st_size, st.st_mode & 0777);
+        write_message(STDOUT_FILENO, dbg);
+    } else {
+        char err[256];
+        snprintf(err, sizeof(err), "[DEBUG][FITXER] '%s' NO accessible (%s)\n", nom, strerror(errno));
+        write_message(STDERR_FILENO, err);
+    }
+}
+
+
 /**
  * Copia un fitxer origen a destí
  */
@@ -70,6 +87,10 @@ int processar_media(const char *file_name, int factor) {
     char tmp_file[300];
     snprintf(tmp_file, sizeof(tmp_file), "tmp_%s", basename((char *)file_name));
 
+    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer ABANS de copiar a temporal:\n");
+    mostrar_estat_fitxer(file_name);
+
+
     // DEBUG
     char dbg[512];
     snprintf(dbg, sizeof(dbg), "[DEBUG] Copiant fitxer %s a temporal %s\n", file_name, tmp_file);
@@ -79,6 +100,9 @@ int processar_media(const char *file_name, int factor) {
         write_message(STDERR_FILENO, "Error copiant el fitxer per compressió segura\n");
         return -1;
     }
+
+    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer DESPRÉS de copiar a temporal:\n");
+    mostrar_estat_fitxer(file_name);
 
   
     int result;
@@ -103,6 +127,9 @@ int processar_media(const char *file_name, int factor) {
         result =  ERROR_UNSUPPORTED_FORMAT;
     }
 
+    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer DESPRÉS de la compressió:\n");
+    mostrar_estat_fitxer(tmp_file);
+
     if (result != NO_ERROR) {
         write_message(STDERR_FILENO, "Error en compressió. No es substituirà l’original.\n");
         unlink(tmp_file);
@@ -115,6 +142,9 @@ int processar_media(const char *file_name, int factor) {
         unlink(tmp_file);  // Evitar que quedi penjat
         return -1;
     }
+
+    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer DESPRÉS del rename:\n");
+    mostrar_estat_fitxer(tmp_file);
 
     return 0;  // Retorna 0 si tot ha anat bé
 }
@@ -255,9 +285,11 @@ void *handle_task(void *arg) {
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         return NULL;
     }
+    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer després de recepció:\n");
+    mostrar_estat_fitxer(file_name);
+
 
     metadata->status = TASK_PROCESSING;
-    write_message(STDOUT_FILENO, "[HARLEY] Fitxer rebut correctament, iniciant compressió...\n");
     
     write_message(STDOUT_FILENO, "[HARLEY] Executant processar_media per fitxer: ");
     write_message(STDOUT_FILENO, file_name);

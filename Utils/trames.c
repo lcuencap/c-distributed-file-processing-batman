@@ -1,47 +1,25 @@
 #include "trames.h"
 
+// ---------- Funcions bàsiques i auxiliars ----------
 
-
-// Funció auxiliar per enviar resposta CON_OK o CON_KO
-void enviar_resposta_connexio_inicial(int socket_fd, int correcte) {
-    Trama resposta;
-    if (correcte) {
-        inicialitzar_trama(&resposta, 0x03, "");
-    } else {
-        inicialitzar_trama(&resposta, 0x03, "CON_KO");
-    }
-    write(socket_fd, &resposta, sizeof(resposta));
-}
-
-// Funció auxiliar per enviar CHECK_OK o CHECK_KO
-void enviar_resposta_md5(int socket_fd, int correcte) {
-    Trama resposta;
-    if (correcte) {
-        inicialitzar_trama(&resposta, 0x06, "CHECK_OK");
-    } else {
-        inicialitzar_trama(&resposta, 0x06, "CHECK_KO");
-    }
-    write(socket_fd, &resposta, sizeof(resposta));
-}
-
+/* * Genera un checksum per a una trama.
+ * @param trama Punter a la trama per calcular el checksum.
+ * @param length Longitud de la trama.
+ * @return El checksum calculat com un uint16_t.
+ */
 uint16_t generate_checksum(const uint8_t *trama, size_t length) {
     uint32_t sum = 0;
-    //char debug_msg[512] = {0};
-    //snprintf(debug_msg, sizeof(debug_msg), "Calculant checksum per trama: ");
     for (size_t i = 0; i < length; ++i) {
-        /*
-        char byte[8];
-        snprintf(byte, sizeof(byte), "%02X ", trama[i]);
-        strncat(debug_msg, byte, sizeof(debug_msg) - strlen(debug_msg) - 1);
-        */
-       sum += trama[i];
+        sum += trama[i];
     }
-    //write(STDOUT_FILENO, debug_msg, strlen(debug_msg));
-    //write(STDOUT_FILENO, "\n", 1);
-
     return (uint16_t)(sum % 65536);
 }
 
+/* Inicialitza una trama amb el tipus i les dades especificades.
+ * @param trama Punter a la trama a inicialitzar.
+ * @param type Tipus de trama.
+ * @param data Dades a incloure a la trama.
+ */
 void inicialitzar_trama(Trama *trama, char type, const char *data) {
     memset(trama, 0, sizeof(Trama));
     trama->type = type;
@@ -50,87 +28,134 @@ void inicialitzar_trama(Trama *trama, char type, const char *data) {
         trama->data_length = sizeof(trama->data) - 1;
     }
     strncpy(trama->data, data, trama->data_length);
-    trama->timestamp = (uint32_t)time(NULL);    
+    trama->timestamp = (uint32_t)time(NULL);
     trama->checksum = generate_checksum((uint8_t *)trama, TRAMA_SIZE - 2);
 }
 
-
+/* Validació de la trama.
+ * @param trama Punter a la trama a validar.
+ * @return 1 si la trama és vàlida, 0 altrament.
+ */
 int validar_trama(Trama *trama) {
-    char debug_msg[256];
+    if (trama->data_length > sizeof(trama->data)) return 0;
 
-    // Verificar la longitud de les dades
-    if (trama->data_length > sizeof(trama->data)) {
-        return 0; // Longitud no vàlida
-    }
-
-    // Guardar el checksum original i posar-lo a 0 per al càlcul
-    uint16_t original_checksum = trama->checksum;
+    uint16_t original = trama->checksum;
     trama->checksum = 0;
+    uint16_t calculated = generate_checksum((uint8_t *)trama, TRAMA_SIZE - 2);
+    trama->checksum = original;
 
-    // Calcular el checksum basat en els altres camps
-    uint16_t calculated_checksum = generate_checksum((uint8_t *)trama, TRAMA_SIZE - 2);
-    trama->checksum = original_checksum; // Restaurar el valor original
-
-    // Comparar el checksum calculat amb el rebut
-    if (calculated_checksum != original_checksum) {
-        snprintf(debug_msg, sizeof(debug_msg), "Checksum no coincideix: calculat=%d, rebut=%d\n",
-                 calculated_checksum, original_checksum);
-        write(STDOUT_FILENO, debug_msg, strlen(debug_msg));
-        return 0; // Checksum no vàlid
+    if (calculated != original) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Checksum no coincideix: calculat=%u, rebut=%u\n", calculated, original);
+        write(STDOUT_FILENO, msg, strlen(msg));
+        return 0;
     }
 
-    return 1; // Trama vàlida
+    return 1;
 }
 
+/* * Envia una trama al socket especificat.
+ * @param socket_fd Descriptor del socket on enviar la trama.
+ * @param tipus Tipus de trama a enviar.
+ * @param data Dades a incloure a la trama.
+ * @return 0 si l'enviament és correcte, -1 si hi ha un error.
+ */
+int enviar_trama(int socket_fd, char tipus, const char *data) {
+    Trama t;
+    inicialitzar_trama(&t, tipus, data);
+    return write(socket_fd, &t, TRAMA_SIZE) == TRAMA_SIZE ? 0 : -1;
+}
 
-/**
- * Envia una petició de connexió a Gotham.
+// ---------- Funcions d’enviament de resposta ----------
+
+/* Envia una resposta simple al socket especificat.
+ * @param socket_fd Descriptor del socket on enviar la resposta.
+ * @param tipus Tipus de trama a enviar.
+ * @param correcte 1 si la resposta és correcta, 0 altrament.
+ * @param ok_msg Missatge a enviar si la resposta és correcta.
+ * @param ko_msg Missatge a enviar si la resposta no és correcta.
+ */
+void enviar_resposta_simple(int socket_fd, char tipus, int correcte, const char *ok_msg, const char *ko_msg) {
+    const char *missatge = correcte ? ok_msg : ko_msg;
+    enviar_trama(socket_fd, tipus, missatge);
+}
+
+/* Envia una resposta de connexió inicial al socket especificat.
+ * @param socket_fd Descriptor del socket on enviar la resposta.
+ * @param correcte 1 si la connexió és correcta, 0 altrament.
+ */
+void enviar_resposta_connexio_inicial(int socket_fd, int correcte) {
+    enviar_resposta_simple(socket_fd, 0x03, correcte, "", "CON_KO");
+}
+
+/* Envia una resposta de distorsió de fitxer al socket especificat.
+ * @param socket_fd Descriptor del socket on enviar la resposta.
+ * @param correcte 1 si la distorsió és correcta, 0 altrament.
+ */
+void enviar_resposta_md5(int socket_fd, int correcte) {
+    enviar_resposta_simple(socket_fd, 0x06, correcte, "CHECK_OK", "CHECK_KO");
+}
+
+// ---------- Verificació ----------
+
+/* Calcula el MD5SUM d'un fitxer i retorna si és l'esperat.
+ * @param file_name Nom del fitxer a calcular el MD5SUM.
+ * @param md5sum Punter al buffer on emmagatzemar el checksum calculat.
+ * @param file_size Punter a una variable on emmagatzemar la mida del fitxer.
+ * @return 0 si el càlcul és correcte, -1 si hi ha un error.
+ */
+int verificar_checksum(const char *file_name, const char *received_checksum) {
+    char calculated_checksum[MD5SUM_LENGTH];
+    uint32_t file_size;
+
+    if (calcular_md5(file_name, calculated_checksum, &file_size) < 0) {
+        write_message(STDERR_FILENO, "Error calculant MD5SUM.\n");
+        return -1;
+    }
+
+    return strncmp(calculated_checksum, received_checksum, MD5SUM_LENGTH) == 0 ? 0 : -1;
+}
+
+// ---------- Funcions d’enviament de peticions ----------
+
+/* Envia una petició de connexió a Gotham al socket especificat.
+ * @param socket_fd Descriptor del socket on enviar la petició.
+ * @param userName Nom d'usuari per a la connexió.
+ * @param ip Adreça IP del client.
+ * @param port Port del client.
+ * @return 0 si l'enviament és correcte, -1 si hi ha un error.
  */
 int send_connection_request_to_gotham(int socket_fd, const char *userName, const char *ip, uint16_t port) {
-    Trama trama;
     char data[245];
     snprintf(data, sizeof(data), "%s&%s&%u", userName, ip, port);
-    inicialitzar_trama(&trama, 0x01, data);
-
-    if (write(socket_fd, &trama, TRAMA_SIZE) != TRAMA_SIZE) {
-        return -1;
-    }
-    return 0;
+    return enviar_trama(socket_fd, 0x01, data);
 }
 
-
+/* Envia una petició de distorsió de fitxer al socket especificat.
+ * @param socket_fd Descriptor del socket on enviar la petició.
+ * @param mediaType Tipus de media ("media", "text").
+ * @param fileName Nom del fitxer a distorsionar.
+ * @return 0 si l'enviament és correcte, -1 si hi ha un error.
+ */
 int send_distort_file_request_to_gotham(int socket_fd, const char *mediaType, const char *fileName) {
-    Trama trama;
-    char data[245] = {0};
+    char data[245];
     snprintf(data, sizeof(data), "%s&%s", mediaType, fileName);
-
-    inicialitzar_trama(&trama, 0x10, data);
-
-    if (write(socket_fd, &trama, TRAMA_SIZE) != TRAMA_SIZE) {
-        return -1;
-    }
-
-    return 0;
+    return enviar_trama(socket_fd, 0x10, data);
 }
 
+/*Envia notificació de desconnexió al socket especificat.
+ * @param socket_fd Descriptor del socket on enviar la notificació.
+ * @param identifier Identificador del worker o client que es desconnecta.
+ * @return 0 si l'enviament és correcte, -1 si hi ha un error.
+ */
 int send_disconnection_notification(int socket_fd, const char *identifier) {
-    Trama trama;
-    inicialitzar_trama(&trama, 0x07, identifier);
-
-    if (write(socket_fd, &trama, TRAMA_SIZE) != TRAMA_SIZE) {
-        return -1;
-    }
-
-    return 0;
+    return enviar_trama(socket_fd, 0x07, identifier);
 }
 
+/* * Envia una notificació d'error al socket especificat.
+ * @param socket_fd Descriptor del socket on enviar la notificació.
+ * @return 0 si l'enviament és correcte, -1 si hi ha un error.
+ */
 int send_error_notification(int socket_fd) {
-    Trama trama;
-    inicialitzar_trama(&trama, 0x09, "");
-
-    if (write(socket_fd, &trama, TRAMA_SIZE) != TRAMA_SIZE) {
-        return -1;
-    }
-
-    return 0;
+    return enviar_trama(socket_fd, 0x09, "");
 }

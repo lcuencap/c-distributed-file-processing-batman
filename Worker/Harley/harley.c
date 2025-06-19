@@ -33,16 +33,34 @@ pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 volatile sig_atomic_t keep_running = 1;
 
 
-int verificar_checksum(const char *file_name, const char *received_checksum) {
-    char calculated_checksum[MD5SUM_LENGTH];
-    uint32_t file_size;
 
-    if (calcular_md5(file_name, calculated_checksum, &file_size) < 0) {
-        write_message(STDERR_FILENO, "Error calculant MD5SUM.\n");
+
+/**
+ * Copia un fitxer origen a destí
+ */
+int copiar_fitxer(const char *origen, const char *desti) {
+    int in_fd = open(origen, O_RDONLY);
+    if (in_fd < 0) return -1;
+
+    int out_fd = open(desti, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (out_fd < 0) {
+        close(in_fd);
         return -1;
     }
 
-    return strncmp(calculated_checksum, received_checksum, MD5SUM_LENGTH) == 0 ? 0 : -1;
+    char buffer[4096];
+    ssize_t bytes;
+    while ((bytes = read(in_fd, buffer, sizeof(buffer))) > 0) {
+        if (write(out_fd, buffer, bytes) != bytes) {
+            close(in_fd);
+            close(out_fd);
+            return -1;
+        }
+    }
+
+    close(in_fd);
+    close(out_fd);
+    return (bytes < 0) ? -1 : 0;
 }
 
 

@@ -439,12 +439,16 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         }
         pthread_mutex_unlock(mutex);
     }
+
     write_message(STDOUT_FILENO, "[DEBUG][RECEPCIÓ] Fitxer rebut completament. Offset actual: ");
     char msg[64];
     snprintf(msg, sizeof(msg), "%u\n", metadata->processed_offset);
     write_message(STDOUT_FILENO, msg);
 
-    close(file_fd);
+    
+    fsync(file_fd);  
+    close(file_fd);  
+
 
 
     if (bytes_read < 0) {

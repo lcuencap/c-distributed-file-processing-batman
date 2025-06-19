@@ -68,29 +68,17 @@ int copiar_fitxer(const char *origen, const char *desti) {
  * @brief Processar la compressió de media.
  */
 int processar_media(const char *file_name, int factor) {
-    char mutable_file_name[256];
-    strncpy(mutable_file_name, file_name, sizeof(mutable_file_name));
-    mutable_file_name[sizeof(mutable_file_name) - 1] = '\0';  // Assegura nul final
+    char tmp_file[300];
+    snprintf(tmp_file, sizeof(tmp_file), "tmp_%s", basename((char *)file_name));
 
-    // 🔍 DEBUG: mostrar nom del fitxer
-    char debug_msg[512];
-    snprintf(debug_msg, sizeof(debug_msg), "[DEBUG] processar_media: Fitxer a processar: '%s'\n", mutable_file_name);
-    write_message(STDOUT_FILENO, debug_msg);
+    // DEBUG
+    char dbg[512];
+    snprintf(dbg, sizeof(dbg), "[DEBUG] Copiant fitxer %s a temporal %s\n", file_name, tmp_file);
+    write_message(STDOUT_FILENO, dbg);
 
-    // 📁 DEBUG: mostrar directori actual i comprovar existència del fitxer
-    char cwd[512];
-    if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        char path_msg[512];
-        snprintf(path_msg, sizeof(path_msg), "[DEBUG] Directori actual: %s\n", cwd);
-        write_message(STDOUT_FILENO, path_msg);
-    } else {
-        write_message(STDERR_FILENO, "[DEBUG] No s'ha pogut obtenir el directori actual\n");
-    }
-
-    if (access(mutable_file_name, F_OK) == 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] El fitxer existeix i és accessible.\n");
-    } else {
-        write_message(STDERR_FILENO, "[DEBUG] El fitxer NO existeix o no és accessible.\n");
+    if (copiar_fitxer(file_name, tmp_file) < 0) {
+        write_message(STDERR_FILENO, "Error copiant el fitxer per compressió segura\n");
+        return -1;
     }
 
   
@@ -98,28 +86,37 @@ int processar_media(const char *file_name, int factor) {
 
     if (strstr(file_name, ".wav")) {
         write_message(STDOUT_FILENO, "[HARLEY] Processant fitxer d'àudio .wav...\n");
-        result = SO_compressAudio(mutable_file_name, factor);
+        result = SO_compressAudio(tmp_file, factor);
         char msg[128];
         snprintf(msg, sizeof(msg), "[HARLEY] Compressió d'àudio finalitzada, resultat: %d\n", result);
         write_message(STDOUT_FILENO, msg);
-        return result;
-
     } else if (strstr(file_name, ".jpg") || strstr(file_name, ".png")) {
         write_message(STDOUT_FILENO, "[HARLEY] Processant imatge...\n");
-        result = SO_compressImage(mutable_file_name, factor);
+        result = SO_compressImage(tmp_file, factor);
         char msg[128];
         snprintf(msg, sizeof(msg), "[HARLEY] Compressió d'imatge finalitzada, resultat: %d\n", result);
         write_message(STDOUT_FILENO, msg);
-        return result;
-
     } else if (strstr(file_name, ".mp3")) {
         write_message(STDERR_FILENO, "Error: .mp3 no suportat. Només .wav.\n");
-        return ERROR_NOT_WAV;
-
+        result = ERROR_NOT_WAV;
     } else {
         write_message(STDERR_FILENO, "Error: Tipus de fitxer no suportat per a compressió.\n");
-        return ERROR_UNSUPPORTED_FORMAT;
+        result =  ERROR_UNSUPPORTED_FORMAT;
     }
+
+    if (result != NO_ERROR) {
+        write_message(STDERR_FILENO, "Error en compressió. No es substituirà l’original.\n");
+        unlink(tmp_file);
+        return result;
+    }
+
+    // Substituir l’original pel fitxer comprimit
+    if (rename(tmp_file, file_name) < 0) {
+        write_message(STDERR_FILENO, "Error substituint l’original pel fitxer comprimit.\n");
+        return -1;
+    }
+
+    return 0;  // Retorna 0 si tot ha anat bé
 }
 
 

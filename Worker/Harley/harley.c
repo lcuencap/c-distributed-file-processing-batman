@@ -26,7 +26,7 @@ int active_threads = 0;
 pthread_mutex_t threads_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_t gotham_thread;
 pthread_t harley_thread;
-
+static int server_fd = -1; 
 
 int connection_queue[MAX_QUEUE_SIZE];
 int queue_front = 0, queue_rear = 0, queue_count = 0;
@@ -382,7 +382,7 @@ void *worker_loop(void *arg) {
 void listener_harley_principal(ConfigWorker *config) {
     write_message(STDOUT_FILENO, "[Harley] Entrem al thread de listener de flecks.\n");
 
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
     fcntl(server_fd, F_SETFL, O_NONBLOCK);  
 
     if (server_fd < 0) {
@@ -427,13 +427,14 @@ void listener_harley_principal(ConfigWorker *config) {
         int client_socket = accept(server_fd, NULL, NULL);
         
         if (client_socket < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            usleep(100000);  // 100 ms
-            continue;
-        } else {
-            break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (!keep_running) break;  // <-- Afegeix això aquí també
+                usleep(100000);  // 100 ms
+                continue;
+            } else {
+                break;
+            }
         }
-    }
         
         
 
@@ -588,6 +589,18 @@ void gestionar_signal_interrupt(int sig) {
     // Enviar desconnexió a Gotham
     write_message(STDOUT_FILENO, "[DEBUG] Notificant desconnexió a Gotham...\n");
     gestionar_desconnexio_gotham(config.base.socket_fd, "media");
+
+    if (config.base.socket_fd > 0) {
+        write_message(STDOUT_FILENO, "[DEBUG] Tancant el socket d’escolta de Harley...\n");
+        close(config.base.socket_fd);
+        config.base.socket_fd = -1;
+    }
+    if (server_fd > 0) {
+        write_message(STDOUT_FILENO, "[DEBUG] Tancant socket d’escolta del listener de Harley...\n");
+        close(server_fd);
+        server_fd = -1;
+    }
+
     
 
     // Decrementar comptador de workers
@@ -608,10 +621,6 @@ void gestionar_signal_interrupt(int sig) {
             write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
             if (shm_unlink("/harley_shared_mem") < 0) {
                 write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
-            }
-            write_message(STDOUT_FILENO, "[DEBUG] Tancant socket amb Gotham...\n");
-            if (close(config.base.socket_fd) < 0) {
-                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut tancar el socket de Gotham.\n");
             }
         }
         pthread_mutex_unlock(&shared_mem_mutex);

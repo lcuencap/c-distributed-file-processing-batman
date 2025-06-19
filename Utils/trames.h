@@ -8,6 +8,8 @@
 #include <time.h>
 #include <stdint.h>
 #include <arpa/inet.h> 
+#include "file_utils.h"
+
 
 #define TRAMA_SIZE sizeof(Trama)
  

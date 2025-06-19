@@ -24,6 +24,7 @@ pthread_mutex_t shared_mem_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_rwlock_t shared_mem_rwlock = PTHREAD_RWLOCK_INITIALIZER;  
 int active_threads = 0;
 pthread_mutex_t threads_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_t gotham_thread;
 
 int connection_queue[MAX_QUEUE_SIZE];
 int queue_front = 0, queue_rear = 0, queue_count = 0;
@@ -465,6 +466,9 @@ void *listener_harley_wrapper(void *arg) {
 
 void *gotham_listener_thread(void *arg) {
     ConfigWorker *config = (ConfigWorker *)arg;
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+
 
     while (keep_running) {
         if (!keep_running) break;
@@ -500,6 +504,8 @@ void *gotham_listener_thread(void *arg) {
         }
         if (bytes_read != sizeof(trama)) {
             write_message(STDERR_FILENO, "Error llegint trama de Gotham.\n");
+            if (!keep_running) break;
+
             if (reconnectar_gotham(config, keep_running) < 0) {
                 write_message(STDERR_FILENO, "No s'ha pogut reconnectar amb Gotham. Aturant el worker.\n");
                 keep_running = 0;
@@ -567,18 +573,10 @@ void gestionar_signal_interrupt(int sig) {
     keep_running = 0;
     write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
 
-    // Marcar tasques incompletes
-    write_message(STDOUT_FILENO, "[DEBUG] Marcant tasques incompletes...\n");
-    if (pthread_mutex_lock(task_manager.mutex) != 0) {
-        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de tasques.\n");
-    } else {
-        mark_incomplete_tasks(task_manager, shared_mem, current_mem_size, shared_mem_mutex);
-        pthread_mutex_unlock(task_manager.mutex);
-    }
-
     // Enviar desconnexió a Gotham
     write_message(STDOUT_FILENO, "[DEBUG] Notificant desconnexió a Gotham...\n");
-    gestionar_desconnexio_gotham(config->base.socket_fd, "media");
+    gestionar_desconnexio_gotham(config.base.socket_fd, "media");
+    
 
     // Decrementar comptador de workers
     write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
@@ -586,7 +584,9 @@ void gestionar_signal_interrupt(int sig) {
         write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
     } else {
         int *worker_count = (int *)shared_mem;
-        (*worker_count)--;
+        
+        if (*worker_count > 0) (*worker_count)--; 
+
 
         char count_msg[128];
         snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
@@ -597,8 +597,10 @@ void gestionar_signal_interrupt(int sig) {
             if (shm_unlink("/harley_shared_mem") < 0) {
                 write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
             }
-            // No es fa free o close sobre shared_mem_fd directament perquè és un enter
-            // Es tanca més avall amb close()
+            write_message(STDOUT_FILENO, "[DEBUG] Tancant socket amb Gotham...\n");
+            if (close(config.base.socket_fd) < 0) {
+                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut tancar el socket de Gotham.\n");
+            }
         }
         pthread_mutex_unlock(&shared_mem_mutex);
     }
@@ -609,15 +611,13 @@ void gestionar_signal_interrupt(int sig) {
         write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
     }
 
-    // Tancar connexió amb Gotham
-    write_message(STDOUT_FILENO, "[DEBUG] Tancant socket amb Gotham...\n");
-    if (close(config->base.socket_fd) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut tancar el socket de Gotham.\n");
-    }
+    write_message(STDOUT_FILENO, "[DEBUG] Cancel·lant el thread de Gotham...\n");
+    pthread_cancel(gotham_thread);
+    pthread_join(gotham_thread, NULL);
 
     // Alliberar memòria de configuració
     write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
-    free(config->work_dir);
+    free(config.work_dir);
 
     // Desbloquejar qualsevol thread del pool en espera
     write_message(STDOUT_FILENO, "[DEBUG] Despertant threads bloquejats en la cua...\n");
@@ -660,6 +660,14 @@ int main(int argc, char *argv[]) {
                                     current_mem_size, &shared_mem_mutex); 
 
     netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
+    pthread_mutex_lock(&shared_mem_mutex);
+    int *worker_count = (int *)shared_mem;
+    (*worker_count)++;
+    char dbg[128];
+    snprintf(dbg, sizeof(dbg), "[DEBUG] Nombre actual de workers després d’iniciar: %d\n", *worker_count);
+    write_message(STDOUT_FILENO, dbg);
+    pthread_mutex_unlock(&shared_mem_mutex);
+
    
 
     inicialitzar_connexio_gotham(&config);
@@ -671,7 +679,6 @@ int main(int argc, char *argv[]) {
     }
 
 
-    pthread_t gotham_thread;
     pthread_create(&gotham_thread, NULL, gotham_listener_thread, &config);
     configurar_heartbeats(enviar_heartbeat);
 

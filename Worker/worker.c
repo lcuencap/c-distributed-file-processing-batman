@@ -892,34 +892,3 @@ int reconnectar_gotham(ConfigWorker *config, int keep_running) {
     }
     return -1;
 }
-
-void gestionar_signal_interrupt_worker(int sig, TaskManager *task_manager, ConfigWorker *config, 
-                                       void *shared_mem, int *shared_mem_fd, const char *shm_name, 
-                                       pthread_mutex_t *task_mutex, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex) {
-    (void)sig;
-
-    pthread_mutex_lock(task_mutex);
-    mark_incomplete_tasks(task_manager, shared_mem, shared_mem_size, shared_mem_mutex);
-    pthread_mutex_unlock(task_mutex);
-
-    gestionar_desconnexio_gotham(config->base.socket_fd, "Worker");
-
-    pthread_mutex_lock(shared_mem_mutex);
-    int *worker_count = (int *)shared_mem;
-    (*worker_count)--;
-
-    if (*worker_count == 0) {
-        shm_unlink(shm_name);
-        close(*shared_mem_fd);
-    }
-    
-    pthread_mutex_unlock(shared_mem_mutex);
-
-    munmap(shared_mem, SHARED_MEM_SIZE);
-    close(config->base.socket_fd);
-    free(config->work_dir);
-
-    write_message(STDOUT_FILENO, "Worker finalitzat correctament\n");
-
-    _exit(0);
-}

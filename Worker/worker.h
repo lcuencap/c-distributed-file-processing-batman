@@ -60,7 +60,8 @@ void gestionar_signal_interrupt_worker(int sig, TaskManager *task_manager, Confi
 
 void configurar_heartbeats(void (*handler)(int));
 void enqueue_connection(int client_socket, int* connection_queue, int* queue_rear, int* queue_count, pthread_mutex_t* queue_mutex, pthread_cond_t *queue_not_empty, pthread_cond_t *queue_not_full);    
-int dequeue_connection(int* connection_queue, int* queue_front, int *queue_count, pthread_mutex_t* queue_mutex, pthread_cond_t *queue_not_empty, pthread_cond_t *queue_not_full);  
+int dequeue_connection(int* connection_queue, int* queue_front, int* queue_count,
+    pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full, int keep_running);
 void add_task_to_manager(TaskManager *manager, int client_socket, const char *file_name, ConfigWorker *config);
 void marcar_tasca_com_fallida(TaskMetadata *metadata);
 

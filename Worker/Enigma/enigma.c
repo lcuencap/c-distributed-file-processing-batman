@@ -204,7 +204,7 @@ void *worker_loop(void *arg) {
     (void)arg;
     while (1) {
         int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
-            &queue_mutex, &queue_not_empty, &queue_not_full);
+            &queue_mutex, &queue_not_empty, &queue_not_full, keep_running);
         int *sock_ptr = malloc(sizeof(int));
         *sock_ptr = client_socket;
         handle_task(sock_ptr);

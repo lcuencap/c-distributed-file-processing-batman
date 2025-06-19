@@ -582,7 +582,8 @@ void free_task_metadata(TaskMetadata *metadata, pthread_mutex_t *mutex) {
 
 
 int dequeue_connection(int* connection_queue, int* queue_front, int* queue_count,
-    pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full) {
+    pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full, int keep_running) {
+    if (!keep_running) return -1;  // Si el worker està tancant, no es pot desempaquetar
     pthread_mutex_lock(queue_mutex);
     while (*queue_count == 0)
     pthread_cond_wait(queue_not_empty, queue_mutex);

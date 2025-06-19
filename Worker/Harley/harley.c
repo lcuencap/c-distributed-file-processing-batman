@@ -362,13 +362,17 @@ void *handle_task(void *arg) {
 
 void *worker_loop(void *arg) {
     (void) arg;  
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+
     while (keep_running) {
         if (!keep_running) break;
 
         int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
-            &queue_mutex, &queue_not_empty, &queue_not_full);
+            &queue_mutex, &queue_not_empty, &queue_not_full, keep_running);
 
         int *socket_ptr = malloc(sizeof(int));
+        if (!socket_ptr) continue;
         *socket_ptr = client_socket;
         handle_task(socket_ptr);
     }
@@ -381,6 +385,9 @@ void *worker_loop(void *arg) {
  * @brief Escoltar connexions entrants i gestionar la possible desconnexió de Fleck.
  */
 void listener_harley_principal(ConfigWorker *config) {
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+
     write_message(STDOUT_FILENO, "[Harley] Entrem al thread de listener de flecks.\n");
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -470,6 +477,8 @@ void listener_harley_principal(ConfigWorker *config) {
     }
 
     close(server_fd);
+    write_message(STDOUT_FILENO, "[Harley] Listener thread finalitzat.\n");
+
 }
 
 void *listener_harley_wrapper(void *arg) {
@@ -586,7 +595,10 @@ void *gotham_listener_thread(void *arg) {
 void gestionar_signal_interrupt(int sig) {
     (void)sig;
     keep_running = 0;
+    // Desbloquejar qualsevol thread del pool en espera
+    write_message(STDOUT_FILENO, "[DEBUG] Despertant threads bloquejats en la cua...\n");
     pthread_cond_broadcast(&queue_not_empty);
+    pthread_cond_broadcast(&queue_not_full);
     write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
 
     // Enviar desconnexió a Gotham
@@ -603,8 +615,6 @@ void gestionar_signal_interrupt(int sig) {
         close(server_fd);
         server_fd = -1;
     }
-
-    
 
     // Decrementar comptador de workers
     write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
@@ -639,17 +649,16 @@ void gestionar_signal_interrupt(int sig) {
     pthread_cancel(gotham_thread);
     pthread_join(gotham_thread, NULL);
 
-    write_message(STDOUT_FILENO, "[DEBUG] Cancel·lant el thread de Fleck...\n");
-    pthread_cancel(harley_thread);
-    pthread_join(harley_thread, NULL);
+    if (config.is_primary_worker) {
+        write_message(STDOUT_FILENO, "[DEBUG] Cancel·lant el thread de Fleck...\n");
+        pthread_cancel(harley_thread);
+        pthread_join(harley_thread, NULL);
+    }
+
 
     // Alliberar memòria de configuració
     write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
     free(config.work_dir);
-
-    // Desbloquejar qualsevol thread del pool en espera
-    write_message(STDOUT_FILENO, "[DEBUG] Despertant threads bloquejats en la cua...\n");
-    pthread_cond_broadcast(&queue_not_empty);
 
     write_message(STDOUT_FILENO, "[DEBUG] Finalització de Harley completa.\n");
 }

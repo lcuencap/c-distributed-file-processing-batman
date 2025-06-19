@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <libgen.h>
 #include <pthread.h>
 
 #define THREAD_POOL_SIZE 4

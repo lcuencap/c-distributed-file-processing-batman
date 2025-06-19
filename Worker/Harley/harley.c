@@ -176,6 +176,7 @@ void enviar_heartbeat(int signo) {
         } else {
             write_message(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n");
             keep_running = 0; 
+            pthread_cond_broadcast(&queue_not_empty);
             return;            
         }
     } else {
@@ -524,6 +525,7 @@ void *gotham_listener_thread(void *arg) {
             if (reconnectar_gotham(config, keep_running) < 0) {
                 write_message(STDERR_FILENO, "No s'ha pogut reconnectar amb Gotham. Aturant el worker.\n");
                 keep_running = 0;
+                pthread_cond_broadcast(&queue_not_empty);
                 break;  
             }
             continue;
@@ -584,6 +586,7 @@ void *gotham_listener_thread(void *arg) {
 void gestionar_signal_interrupt(int sig) {
     (void)sig;
     keep_running = 0;
+    pthread_cond_broadcast(&queue_not_empty);
     write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
 
     // Enviar desconnexió a Gotham

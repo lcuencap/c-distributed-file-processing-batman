@@ -614,7 +614,6 @@ void marcar_tasca_com_fallida(TaskMetadata *metadata) {
     metadata->status = TASK_FAILED;
 }
 
-
 /**
  * @brief Inicialitza la memòria compartida per a les tasques.
  * @param shm_name Nom del segment de memòria compartida.
@@ -623,18 +622,24 @@ void marcar_tasca_com_fallida(TaskMetadata *metadata) {
  * @param mem_size Mida total de la memòria compartida.
  * @param mutex Mutex per a protegir l'accés a la memòria compartida.
  */
-void inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, void **shared_mem, 
+int inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, void **shared_mem, 
                                      size_t mem_size, pthread_mutex_t *mutex) {
+    int primer_worker = 0;
+
     *shared_mem_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0644);
     if (*shared_mem_fd < 0) {
         perror("shm_open");
         exit(1);
     }
 
-    if (ftruncate(*shared_mem_fd, mem_size) < 0) {
-        perror("ftruncate");
-        shm_unlink(shm_name);
-        exit(1);
+    struct stat shm_stat;
+    if (fstat(*shared_mem_fd, &shm_stat) == 0 && shm_stat.st_size == 0) {
+        primer_worker = 1;
+        if (ftruncate(*shared_mem_fd, mem_size) < 0) {
+            perror("ftruncate");
+            shm_unlink(shm_name);
+            exit(1);
+        }
     }
 
     *shared_mem = mmap(NULL, mem_size, PROT_READ | PROT_WRITE, MAP_SHARED, *shared_mem_fd, 0);
@@ -644,13 +649,18 @@ void inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, v
         exit(1);
     }
 
+    if (primer_worker) {
+        memset(*shared_mem, 0, mem_size);
+    }
+
     pthread_mutex_lock(mutex);
     int *worker_count = (int *)(*shared_mem);
-    (*worker_count)++;  // Incrementi directament, no netegis aquí dins
+    __sync_fetch_and_add(worker_count, 1);  // increment atòmic
     pthread_mutex_unlock(mutex);
+
+    return primer_worker;  
+
 }
-
-
 /**
  * @brief Volca el contingut de la memòria compartida a la sortida estàndard.
  * @param shared_mem Punter a la memòria compartida.

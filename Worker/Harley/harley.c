@@ -24,8 +24,9 @@ pthread_mutex_t shared_mem_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_rwlock_t shared_mem_rwlock = PTHREAD_RWLOCK_INITIALIZER;  
 int active_threads = 0;
 pthread_mutex_t threads_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_t gotham_thread;
-pthread_t harley_thread;
+pthread_t gotham_thread = 0;
+pthread_t harley_thread = 0;
+
 static int server_fd = -1; 
 
 int connection_queue[MAX_QUEUE_SIZE];
@@ -182,7 +183,6 @@ void enviar_heartbeat(int signo) {
     } else {
         alarm(10);  
     } 
-
 }
 
 
@@ -366,7 +366,10 @@ void *worker_loop(void *arg) {
     pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
     while (keep_running) {
-        if (!keep_running) break;
+        if (!keep_running) {
+            write_message(STDOUT_FILENO, "[HARLEY] Finalitzant worker_loop per keep_running = 0\n");
+            break;
+        }
 
         int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
             &queue_mutex, &queue_not_empty, &queue_not_full, keep_running);
@@ -376,6 +379,7 @@ void *worker_loop(void *arg) {
         *socket_ptr = client_socket;
         handle_task(socket_ptr);
     }
+    write_message(STDOUT_FILENO, "1234567890 [HARLEY] Worker loop finalitzat.\n");
     return NULL;
 }
 
@@ -477,7 +481,7 @@ void listener_harley_principal(ConfigWorker *config) {
     }
 
     close(server_fd);
-    write_message(STDOUT_FILENO, "[Harley] Listener thread finalitzat.\n");
+    write_message(STDOUT_FILENO, "[Harley] Fleck thread finalitzat.\n");
 
 }
 
@@ -584,7 +588,7 @@ void *gotham_listener_thread(void *arg) {
                 break;
         }
     }
-
+    write_message(STDOUT_FILENO, "1234567890 [HARLEY] Gotham loop finalitzat.\n");
     return NULL;
 }
 
@@ -645,22 +649,22 @@ void gestionar_signal_interrupt(int sig) {
         write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
     }
 
-    write_message(STDOUT_FILENO, "[DEBUG] Cancel·lant el thread de Gotham...\n");
-    pthread_cancel(gotham_thread);
-    pthread_join(gotham_thread, NULL);
+    if (!pthread_equal(gotham_thread, (pthread_t)0)) {
+        pthread_cancel(gotham_thread);
+        pthread_join(gotham_thread, NULL);
+    }
 
-    if (config.is_primary_worker) {
-        write_message(STDOUT_FILENO, "[DEBUG] Cancel·lant el thread de Fleck...\n");
+    if (config.is_primary_worker && !pthread_equal(harley_thread, (pthread_t)0)) {
         pthread_cancel(harley_thread);
         pthread_join(harley_thread, NULL);
     }
-
 
     // Alliberar memòria de configuració
     write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
     free(config.work_dir);
 
     write_message(STDOUT_FILENO, "[DEBUG] Finalització de Harley completa.\n");
+    exit(0);
 }
 
 /**
@@ -682,9 +686,13 @@ int main(int argc, char *argv[]) {
     close(config_fd);
 
     assegurar_working_directory(config.work_dir, 1);
+    
 
     char full_workdir[512];
     snprintf(full_workdir, sizeof(full_workdir), "Worker/Harley/%s", config.work_dir);
+
+    if (config.work_dir) free(config.work_dir);  
+
 
     config.work_dir = strdup(full_workdir);
 
@@ -693,15 +701,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    inicialitzar_memoria_compartida("/harley_shared_mem", &shared_mem_fd, &shared_mem, 
+    int primer_worker = inicialitzar_memoria_compartida("/harley_shared_mem", &shared_mem_fd, &shared_mem, 
                                     current_mem_size, &shared_mem_mutex); 
 
     int *worker_count = (int *)shared_mem;
 
-
-    if (*worker_count == 1) {  // Vol dir que aquest és el primer worker que ha incrementat
+    if (primer_worker) {
         write_message(STDOUT_FILENO, "[DEBUG] Aquest és el primer worker. Inicialitzant estat de memòria...\n");
-        netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);  // Si cal
+        netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
     }
 
     char dbg[128];
@@ -724,13 +731,24 @@ int main(int argc, char *argv[]) {
     configurar_heartbeats(enviar_heartbeat);
 
 
-    // Neteja FINAL, després del Ctrl+C
+    // Quan Ctrl+C no s’ha activat i el programa s’acaba normalment
+    pthread_cond_broadcast(&queue_not_empty);
+    pthread_cond_broadcast(&queue_not_full);
+
     for (int i = 0; i < THREAD_POOL_SIZE; i++) {
-        pthread_cancel(thread_pool[i]);      
         pthread_join(thread_pool[i], NULL);
     }
 
-    write_message(STDOUT_FILENO, "Worker Harley finalitzat correctament.\n");                                  
-                             
+    if (config.is_primary_worker) {
+        pthread_join(harley_thread, NULL);
+    }
+    pthread_join(gotham_thread, NULL);
+
+    if (config.work_dir) free(config.work_dir);
+    if (config.base.ip) free(config.base.ip);
+    if (config.ip_fleck) free(config.ip_fleck);
+
+    write_message(STDOUT_FILENO, "Worker Harley finalitzat correctament.\n");
+        
     return 0;
 }

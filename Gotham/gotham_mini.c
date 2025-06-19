@@ -617,15 +617,6 @@ void *gestionar_client_fleck(void *arg) {
                 principal_socket_fd = principal->base.socket_fd;
             }
             pthread_mutex_unlock(&worker_mutex);
-
-            if (principal_socket_fd != -1) {
-                char debug_msg[128];
-                snprintf(debug_msg, sizeof(debug_msg),
-                        "[REASSIGN] Eliminant principal (socket_fd %d) del tipus %d abans de reassignar.",
-                        principal_socket_fd, tipus_worker);
-                log_event(debug_msg);
-                eliminar_worker_per_socket(principal_socket_fd);
-            }
             
             char ip_tmp[64];
             int port_tmp = -1;

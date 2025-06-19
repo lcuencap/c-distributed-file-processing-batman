@@ -475,6 +475,21 @@ void *gotham_listener_thread(void *arg) {
             sleep(1);
             continue;
         }
+        fd_set readfds;
+        struct timeval timeout;
+        FD_ZERO(&readfds);
+        FD_SET(config->base.socket_fd, &readfds);
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int result = select(config->base.socket_fd + 1, &readfds, NULL, NULL, &timeout);
+        if (result < 0) {
+            if (errno == EINTR) break;  // senyal rebuda
+            continue;
+        } else if (result == 0) {
+            if (!keep_running) break;  // timeout
+            continue;
+        }
 
         ssize_t bytes_read = read(config->base.socket_fd, &trama, sizeof(trama));
         if (bytes_read < 0) {
@@ -543,12 +558,73 @@ void *gotham_listener_thread(void *arg) {
     return NULL;
 }
 
+/**
+ * @brief Gestiona la recepció de la senyal SIGINT per netejar els recursos del worker.
+ * @param sig Senyal rebut (no s'utilitza, però és necessari per la funció de gestió de senyals).
+ */
 void gestionar_signal_interrupt(int sig) {
     (void)sig;
     keep_running = 0;
-    pthread_cond_broadcast(&queue_not_empty);  // Desbloqueja els threads del pool
-}
+    write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
 
+    // Marcar tasques incompletes
+    write_message(STDOUT_FILENO, "[DEBUG] Marcant tasques incompletes...\n");
+    if (pthread_mutex_lock(task_manager.mutex) != 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de tasques.\n");
+    } else {
+        mark_incomplete_tasks(task_manager, shared_mem, current_mem_size, shared_mem_mutex);
+        pthread_mutex_unlock(task_manager.mutex);
+    }
+
+    // Enviar desconnexió a Gotham
+    write_message(STDOUT_FILENO, "[DEBUG] Notificant desconnexió a Gotham...\n");
+    gestionar_desconnexio_gotham(config->base.socket_fd, "media");
+
+    // Decrementar comptador de workers
+    write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
+    if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
+    } else {
+        int *worker_count = (int *)shared_mem;
+        (*worker_count)--;
+
+        char count_msg[128];
+        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
+        write_message(STDOUT_FILENO, count_msg);
+
+        if (*worker_count == 0) {
+            write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
+            if (shm_unlink("/harley_shared_mem") < 0) {
+                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
+            }
+            // No es fa free o close sobre shared_mem_fd directament perquè és un enter
+            // Es tanca més avall amb close()
+        }
+        pthread_mutex_unlock(&shared_mem_mutex);
+    }
+
+    // Alliberar memòria compartida
+    write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria compartida...\n");
+    if (munmap(shared_mem, SHARED_MEM_SIZE) < 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
+    }
+
+    // Tancar connexió amb Gotham
+    write_message(STDOUT_FILENO, "[DEBUG] Tancant socket amb Gotham...\n");
+    if (close(config->base.socket_fd) < 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut tancar el socket de Gotham.\n");
+    }
+
+    // Alliberar memòria de configuració
+    write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
+    free(config->work_dir);
+
+    // Desbloquejar qualsevol thread del pool en espera
+    write_message(STDOUT_FILENO, "[DEBUG] Despertant threads bloquejats en la cua...\n");
+    pthread_cond_broadcast(&queue_not_empty);
+
+    write_message(STDOUT_FILENO, "[DEBUG] Finalització de Harley completa.\n");
+}
 
 /**
  * @brief Punt d'entrada principal.
@@ -558,6 +634,11 @@ int main(int argc, char *argv[]) {
         write_message(STDERR_FILENO, "Expected: ./harley <config file>\n");
         return 1;
     }
+    struct sigaction sa;
+    sa.sa_handler = gestionar_signal_interrupt;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;  // IMPORTANT: no posar SA_RESTART
+    sigaction(SIGINT, &sa, NULL);
 
     int config_fd = open(argv[1], O_RDONLY);
     if (config_fd < 0 || parse_worker_config(config_fd, &config) < 0) return 1;
@@ -584,7 +665,6 @@ int main(int argc, char *argv[]) {
     inicialitzar_connexio_gotham(&config);
     int flags = fcntl(config.base.socket_fd, F_GETFL, 0);
     fcntl(config.base.socket_fd, F_SETFL, flags | O_NONBLOCK);
-    signal(SIGINT, (void (*)(int))gestionar_signal_interrupt);
     pthread_t thread_pool[THREAD_POOL_SIZE];
     for (int i = 0; i < THREAD_POOL_SIZE; i++) {
         pthread_create(&thread_pool[i], NULL, worker_loop, NULL);
@@ -602,10 +682,6 @@ int main(int argc, char *argv[]) {
         pthread_cancel(thread_pool[i]);      
         pthread_join(thread_pool[i], NULL);
     }
-
-    gestionar_signal_interrupt_worker(SIGINT, &task_manager, &config,
-                                      shared_mem, &shared_mem_fd, "/harley_shared_mem",
-                                      &task_manager.mutex, current_mem_size, &shared_mem_mutex);
 
     write_message(STDOUT_FILENO, "Worker Harley finalitzat correctament.\n");                                  
                              

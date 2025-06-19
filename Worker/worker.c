@@ -448,6 +448,15 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     
     fsync(file_fd);  
     close(file_fd);  
+    struct stat st;
+    if (stat(file_path, &st) == 0) {
+        char dbg[128];
+        snprintf(dbg, sizeof(dbg), "[DEBUG] Mida real al disc després de fsync: %ld bytes\n", st.st_size);
+        write_message(STDOUT_FILENO, dbg);
+    } else {
+        write_message(STDERR_FILENO, "No s'ha pogut obtenir la mida del fitxer després d'escriure.\n");
+    }
+
 
 
 
@@ -903,6 +912,7 @@ void gestionar_signal_interrupt_worker(int sig, TaskManager *task_manager, Confi
         shm_unlink(shm_name);
         close(*shared_mem_fd);
     }
+    
     pthread_mutex_unlock(shared_mem_mutex);
 
     munmap(shared_mem, SHARED_MEM_SIZE);

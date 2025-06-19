@@ -644,27 +644,11 @@ void inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, v
     }
 
     pthread_mutex_lock(mutex);
-
-    // Netegem només si tota la memòria és zero (primera execució real)
-    int is_all_zero = 1;
-    for (size_t i = 0; i < mem_size; i++) {
-        if (*((char *)(*shared_mem) + i) != 0) {
-            is_all_zero = 0;
-            break;
-        }
-    }
-
-    if (is_all_zero) {
-        memset(*shared_mem, 0, mem_size);
-        write_message(STDOUT_FILENO, "[DEBUG] Memòria compartida inicialitzada a zero.\n");
-    }
-
-    // Ara que sabem que és segura
     int *worker_count = (int *)(*shared_mem);
-    (*worker_count)++;
-
+    (*worker_count)++;  // Incrementi directament, no netegis aquí dins
     pthread_mutex_unlock(mutex);
 }
+
 
 /**
  * @brief Volca el contingut de la memòria compartida a la sortida estàndard.

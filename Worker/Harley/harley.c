@@ -25,6 +25,8 @@ pthread_rwlock_t shared_mem_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 int active_threads = 0;
 pthread_mutex_t threads_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_t gotham_thread;
+pthread_t harley_thread;
+
 
 int connection_queue[MAX_QUEUE_SIZE];
 int queue_front = 0, queue_rear = 0, queue_count = 0;
@@ -361,8 +363,10 @@ void *worker_loop(void *arg) {
     (void) arg;  
     while (keep_running) {
         if (!keep_running) break;
+
         int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
             &queue_mutex, &queue_not_empty, &queue_not_full);
+
         int *socket_ptr = malloc(sizeof(int));
         *socket_ptr = client_socket;
         handle_task(socket_ptr);
@@ -379,12 +383,14 @@ void listener_harley_principal(ConfigWorker *config) {
     write_message(STDOUT_FILENO, "[Harley] Entrem al thread de listener de flecks.\n");
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    fcntl(server_fd, F_SETFL, O_NONBLOCK);  
+
     if (server_fd < 0) {
         write_message(STDERR_FILENO, "[HARLEY] Error creant el socket del servidor.\n");
         exit(EXIT_FAILURE);
     }
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));  // ✅ ESTA LÍNEA
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)); 
 
     struct sockaddr_in address = {
         .sin_family = AF_INET,
@@ -419,7 +425,15 @@ void listener_harley_principal(ConfigWorker *config) {
     while (keep_running) {
         if (!keep_running) break;
         int client_socket = accept(server_fd, NULL, NULL);
-        if (client_socket < 0) continue;
+        
+        if (client_socket < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            usleep(100000);  // 100 ms
+            continue;
+        } else {
+            break;
+        }
+    }
         
         
 
@@ -531,10 +545,8 @@ void *gotham_listener_thread(void *arg) {
 
                 config->is_primary_worker = 1;
                 write_message(STDOUT_FILENO, "Harley ara és el worker principal.\n");
-                pthread_t harley_thread;
                 write_message(STDOUT_FILENO, "[Harley] Iniciant thread per a Flecks...\n");
                 pthread_create(&harley_thread, NULL, listener_harley_wrapper, config);
-                pthread_detach(harley_thread); 
                 break;
             case 0x09:
                 // Trama d'error de Gotham
@@ -615,6 +627,10 @@ void gestionar_signal_interrupt(int sig) {
     pthread_cancel(gotham_thread);
     pthread_join(gotham_thread, NULL);
 
+    write_message(STDOUT_FILENO, "[DEBUG] Cancel·lant el thread de Fleck...\n");
+    pthread_cancel(harley_thread);
+    pthread_join(harley_thread, NULL);
+
     // Alliberar memòria de configuració
     write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
     free(config.work_dir);
@@ -659,14 +675,18 @@ int main(int argc, char *argv[]) {
     inicialitzar_memoria_compartida("/harley_shared_mem", &shared_mem_fd, &shared_mem, 
                                     current_mem_size, &shared_mem_mutex); 
 
-    netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
-    pthread_mutex_lock(&shared_mem_mutex);
     int *worker_count = (int *)shared_mem;
-    (*worker_count)++;
+
+
+    if (*worker_count == 1) {  // Vol dir que aquest és el primer worker que ha incrementat
+        write_message(STDOUT_FILENO, "[DEBUG] Aquest és el primer worker. Inicialitzant estat de memòria...\n");
+        netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);  // Si cal
+    }
+
     char dbg[128];
     snprintf(dbg, sizeof(dbg), "[DEBUG] Nombre actual de workers després d’iniciar: %d\n", *worker_count);
     write_message(STDOUT_FILENO, dbg);
-    pthread_mutex_unlock(&shared_mem_mutex);
+
 
    
 
@@ -682,7 +702,6 @@ int main(int argc, char *argv[]) {
     pthread_create(&gotham_thread, NULL, gotham_listener_thread, &config);
     configurar_heartbeats(enviar_heartbeat);
 
-    pthread_join(gotham_thread, NULL);
 
     // Neteja FINAL, després del Ctrl+C
     for (int i = 0; i < THREAD_POOL_SIZE; i++) {

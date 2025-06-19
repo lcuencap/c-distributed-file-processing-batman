@@ -27,6 +27,7 @@ pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 int keep_running = 1;
+pthread_t gotham_thread;
 
 
 /**
@@ -240,8 +241,61 @@ void *gotham_listener_thread(void *arg) {
 }
 
 void gestionar_signal_interrupt(int sig) {
-    gestionar_signal_interrupt_worker(sig, &task_manager, &config, shared_mem, &shared_mem_fd,
-                                       "/enigma_shared_mem", &task_manager.mutex, current_mem_size, &shared_mem_mutex);
+    (void)sig;
+    keep_running = 0;
+    write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
+
+    // Enviar desconnexió a Gotham
+    write_message(STDOUT_FILENO, "[DEBUG] Notificant desconnexió a Gotham...\n");
+    gestionar_desconnexio_gotham(config.base.socket_fd, "text");
+    
+
+    // Decrementar comptador de workers
+    write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
+    if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
+    } else {
+        int *worker_count = (int *)shared_mem;
+        
+        if (*worker_count > 0) (*worker_count)--; 
+
+
+        char count_msg[128];
+        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
+        write_message(STDOUT_FILENO, count_msg);
+
+        if (*worker_count == 0) {
+            write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
+            if (shm_unlink("/harley_shared_mem") < 0) {
+                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
+            }
+            write_message(STDOUT_FILENO, "[DEBUG] Tancant socket amb Gotham...\n");
+            if (close(config.base.socket_fd) < 0) {
+                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut tancar el socket de Gotham.\n");
+            }
+        }
+        pthread_mutex_unlock(&shared_mem_mutex);
+    }
+
+    // Alliberar memòria compartida
+    write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria compartida...\n");
+    if (munmap(shared_mem, SHARED_MEM_SIZE) < 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
+    }
+
+    write_message(STDOUT_FILENO, "[DEBUG] Cancel·lant el thread de Gotham...\n");
+    pthread_cancel(gotham_thread);
+    pthread_join(gotham_thread, NULL);
+
+    // Alliberar memòria de configuració
+    write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
+    free(config.work_dir);
+
+    // Desbloquejar qualsevol thread del pool en espera
+    write_message(STDOUT_FILENO, "[DEBUG] Despertant threads bloquejats en la cua...\n");
+    pthread_cond_broadcast(&queue_not_empty);
+
+    write_message(STDOUT_FILENO, "[DEBUG] Finalització de Enigma completa.\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -267,7 +321,6 @@ int main(int argc, char *argv[]) {
     pthread_t pool[THREAD_POOL_SIZE];
     for (int i = 0; i < THREAD_POOL_SIZE; i++) pthread_create(&pool[i], NULL, worker_loop, NULL);
 
-    pthread_t gotham_thread;
     pthread_create(&gotham_thread, NULL, gotham_listener_thread, &config);
     configurar_heartbeats(enviar_heartbeat);
 

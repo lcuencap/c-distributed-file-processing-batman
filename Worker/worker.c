@@ -45,6 +45,8 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     // **Actualizar punteros**
     *shared_mem = new_mem;
     *current_mem_size = nueva_mem_size;
+    int *worker_count = (int *)new_mem;
+
     
     write_message(STDOUT_FILENO, "[DEBUG][ALLOC] Memòria compartida ampliada per manca d'espai.\n");
 
@@ -371,6 +373,11 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     char file_path[512];
     snprintf(file_path, sizeof(file_path), "%s", metadata->file_name);
 
+    if (metadata->processed_offset >= metadata->total_size) {
+        write_message(STDOUT_FILENO, "[HARLEY] Tasca ja completada. Saltant recepció i iniciant compressió...\n");
+        return 0;  // Si ja s'ha processat completament, no cal rebre fitxer
+    }
+
     int file_fd = open(file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
     if (file_fd < 0) {
@@ -528,8 +535,8 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
                                    void **shared_mem_ptr, size_t *mem_size,
                                    int shared_mem_fd, pthread_mutex_t *mutex) {
     pthread_mutex_lock(mutex);
-    TaskMetadata *iter = (TaskMetadata *)(*shared_mem_ptr);
-    size_t num_entries = *mem_size / sizeof(TaskMetadata);
+    TaskMetadata *iter = (TaskMetadata *)((char *)(*shared_mem_ptr) + sizeof(int));
+    size_t num_entries = (*mem_size - sizeof(int)) / sizeof(TaskMetadata);
     TaskMetadata *found = NULL;
 
     for (size_t i = 0; i < num_entries; i++) {
@@ -553,7 +560,7 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
 
 
     memset(found, 0, sizeof(TaskMetadata));
-    strncpy(found->file_name, file_name, sizeof(found->file_name));
+    snprintf(found->file_name, sizeof(found->file_name), "%s", file_name);
     found->total_size = file_size;
     found->processed_offset = 0;
     found->bytes_sent = 0;
@@ -625,7 +632,6 @@ void marcar_tasca_com_fallida(TaskMetadata *metadata) {
 int inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, void **shared_mem, 
                                      size_t mem_size, pthread_mutex_t *mutex) {
     int primer_worker = 0;
-
     *shared_mem_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0644);
     if (*shared_mem_fd < 0) {
         perror("shm_open");
@@ -655,7 +661,8 @@ int inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, vo
 
     pthread_mutex_lock(mutex);
     int *worker_count = (int *)(*shared_mem);
-    __sync_fetch_and_add(worker_count, 1);  // increment atòmic
+    if (primer_worker) *worker_count = 0;
+    __sync_fetch_and_add(worker_count, 1);
     pthread_mutex_unlock(mutex);
 
     return primer_worker;  
@@ -669,7 +676,8 @@ int inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, vo
 void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
     write_message(STDOUT_FILENO, "\n================== DUMP DE MEMÒRIA COMPARTIDA ==================\n");
 
-    char *ptr = (char *)shared_mem;
+    char *ptr = (char *)shared_mem + sizeof(int);
+
     size_t offset = 0;
     int index = 0;
 
@@ -705,7 +713,8 @@ void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
 void netejar_memoria_tasques(void *shared_mem, size_t mem_size, pthread_mutex_t *shared_mem_mutex) {
     pthread_mutex_lock(shared_mem_mutex);
 
-    char *ptr = (char *)shared_mem;
+    char *ptr = (char *)shared_mem + sizeof(int);
+
     size_t offset = 0;
     int comptador = 0;
 
@@ -744,16 +753,17 @@ TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, co
 
     pthread_mutex_lock(mutex);
 
-    char *shared_mem_ptr = shared_mem;
+    char *shared_mem_ptr = (char *)shared_mem + sizeof(int);
+
     TaskMetadata *found_metadata = NULL;
 
-    while (shared_mem_ptr < (char *)shared_mem + current_mem_size) {
+    while (shared_mem_ptr < ((char *)shared_mem + current_mem_size)){
         TaskMetadata *metadata = (TaskMetadata *)shared_mem_ptr;
         if (strncmp(metadata->file_name, file_name, sizeof(metadata->file_name)) == 0) {
             found_metadata = metadata;
             break;
         }
-        shared_mem_ptr += sizeof(TaskMetadata) + metadata->total_size;
+        shared_mem_ptr += sizeof(TaskMetadata);
     }
 
     pthread_mutex_unlock(mutex);

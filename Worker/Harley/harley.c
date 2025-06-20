@@ -186,7 +186,6 @@ void enviar_heartbeat(int signo) {
 }
 
 
-
 void *handle_task(void *arg) {
     int client_socket = *(int *)arg;
     free(arg);
@@ -262,6 +261,9 @@ void *handle_task(void *arg) {
 
     // Buscar/crear metadata
     TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
+    char debug[64];
+    snprintf(debug, sizeof(debug), "[DEBUG] Nom rebut per guardar: %s\n", file_name);
+    write_message(STDOUT_FILENO, debug);
 
     if (!metadata) {
         write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
@@ -643,9 +645,12 @@ void gestionar_signal_interrupt(int sig) {
         pthread_mutex_unlock(&shared_mem_mutex);
     }
 
+    msync(shared_mem, current_mem_size, MS_SYNC);
+
+
     // Alliberar memòria compartida
     write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria compartida...\n");
-    if (munmap(shared_mem, SHARED_MEM_SIZE) < 0) {
+    if (munmap(shared_mem, current_mem_size) < 0) {
         write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
     }
 

@@ -188,18 +188,21 @@ void *handle_task(void *arg) {
     if (safe_read(client_socket, &request_trama, sizeof(Trama)) < 0) {
         write_message(STDERR_FILENO, "[ERROR] No es pot llegir la trama completa de 256 bytes\n");
         enviar_resposta_connexio_inicial(client_socket, 0);
+        netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
     if (request_trama.data_length > sizeof(request_trama.data)) {
         write_message(STDERR_FILENO, "[ERROR] Data_length massa gran, descartant trama\n");
         enviar_resposta_connexio_inicial(client_socket, 0);
+        netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
     if (request_trama.type != 0x03) {
         write_message(STDERR_FILENO, "[ERROR] Trama rebutjada per tipus incorrecte\n");
         enviar_resposta_connexio_inicial(client_socket, 0);
+        netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
@@ -211,6 +214,7 @@ void *handle_task(void *arg) {
     char *first_sep = strchr(request_trama.data, '&');
     if (!first_sep){
         enviar_resposta_connexio_inicial(client_socket, 0);
+        netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
@@ -222,6 +226,7 @@ void *handle_task(void *arg) {
     char *second_sep = strchr(first_sep + 1, '&');
     if (!second_sep) {
         enviar_resposta_connexio_inicial(client_socket, 0);
+        netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
@@ -235,6 +240,7 @@ void *handle_task(void *arg) {
     char *third_sep = strchr(second_sep + 1, '&');
     if (!third_sep){
         enviar_resposta_connexio_inicial(client_socket, 0);
+        netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
@@ -260,6 +266,7 @@ void *handle_task(void *arg) {
         if (!metadata) {
             write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar espai per la nova tasca.\n");
             //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+            netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
             return NULL;
         }
         strncpy(metadata->file_name, file_name, sizeof(metadata->file_name));
@@ -277,6 +284,7 @@ void *handle_task(void *arg) {
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
         write_message(STDERR_FILENO, "[ERROR] Error rebent el fitxer.\n");
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
     write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer després de recepció:\n");
@@ -293,6 +301,7 @@ void *handle_task(void *arg) {
         write_message(STDERR_FILENO, "[ERROR] Error processant el fitxer.\n");
 
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 

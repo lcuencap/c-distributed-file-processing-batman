@@ -53,6 +53,20 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     return 0;
 }
 
+void netejar_connexio_per_error(int client_socket, TaskMetadata *metadata, pthread_mutex_t *shared_mem_mutex, int *active_threads, pthread_mutex_t *threads_mutex) {
+    if (client_socket >= 0) {
+        close(client_socket);
+    }
+
+    if (metadata != NULL) {
+        free_task_metadata(metadata, &shared_mem_mutex);
+    }
+
+    pthread_mutex_lock(&threads_mutex);
+    active_threads--;
+    pthread_mutex_unlock(&threads_mutex);
+}
+
 
 /**
  * @brief Configura un timeout per detectar desconnexions de Fleck.
@@ -315,6 +329,12 @@ int detectar_desconnexio_fleck(int client_socket) {
     return 0;
 }
 
+/**
+ * @brief Analitza les dades de la trama rebuda per extreure la mida del fitxer i el checksum.
+ * @param data Dades de la trama rebuda.
+ * @param file_size Punter a la variable on es desa la mida del fitxer.
+ * @param checksum Punter al buffer on es desa el checksum.
+ */
 void parse_trama_data(const char *data, uint32_t *file_size, char *checksum) {
     if (!data || !file_size || !checksum) {
         write_message(STDERR_FILENO, "Error: Paràmetres invàlids a parse_trama_data\n");
@@ -336,6 +356,16 @@ void parse_trama_data(const char *data, uint32_t *file_size, char *checksum) {
     return;
 }
 
+/**
+ * @brief Finalitza una tasca per desconnexió del Fleck.
+ * @param metadata Punter a la metadada de la tasca.
+ * @param file_name Nom del fitxer associat a la tasca.
+ * @param socket Socket del Fleck.
+ * @param task_manager Punter al gestor de tasques.
+ * @param shared_mem Punter a la memòria compartida.
+ * @param current_mem_size Mida actual de la memòria compartida.
+ * @param shared_mem_mutex Mutex per a protegir l'accés a la memòria compartida.
+ */
 void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket,
                                        TaskManager *task_manager, void *shared_mem,
                                        size_t current_mem_size, pthread_mutex_t *shared_mem_mutex){
@@ -512,6 +542,16 @@ void configurar_heartbeats(void (*handler)(int)) {
     alarm(10);
 }
 
+/**
+ * @brief Afegeix una nova connexió a la cua de connexions.
+ * @param client_socket Socket del client que s'ha connectat.
+ * @param connection_queue Punter a la cua de connexions.
+ * @param queue_rear Punter al final de la cua.
+ * @param queue_count Punter al comptador d'elements a la cua.
+ * @param queue_mutex Mutex per a protegir l'accés a la cua.
+ * @param queue_not_empty Condició per a indicar que la cua no està buida.
+ * @param queue_not_full Condició per a indicar que la cua no està plena.
+ */
 void enqueue_connection(int client_socket, int* connection_queue, int* queue_rear, int* queue_count,
     pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full) {
     pthread_mutex_lock(queue_mutex);
@@ -588,6 +628,17 @@ void free_task_metadata(TaskMetadata *metadata, pthread_mutex_t *mutex) {
 }
 
 
+/**
+ * @brief Desempaqueta una connexió de la cua de connexions.
+ * @param connection_queue Punter a la cua de connexions.
+ * @param queue_front Punter al front de la cua.
+ * @param queue_count Punter al comptador d'elements a la cua.
+ * @param queue_mutex Mutex per a protegir l'accés a la cua.
+ * @param queue_not_empty Condició per a indicar que la cua no està buida.
+ * @param queue_not_full Condició per a indicar que la cua no està plena.
+ * @param keep_running Indica si el worker segueix en execució.
+ * @return Retorna el socket del client desempaquetat, o -1 si el worker està tancant.
+ */
 int dequeue_connection(int* connection_queue, int* queue_front, int* queue_count,
     pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full, int keep_running) {
     if (!keep_running) return -1;  // Si el worker està tancant, no es pot desempaquetar
@@ -605,7 +656,13 @@ int dequeue_connection(int* connection_queue, int* queue_front, int* queue_count
 }
 
 
-
+/**
+ * @brief Afegeix una tasca al gestor de tasques.
+ * @param manager Punter al gestor de tasques.
+ * @param client_socket Socket del client que ha enviat la tasca.
+ * @param file_name Nom del fitxer associat a la tasca.
+ * @param config Configuració del worker.
+ */
 void add_task_to_manager(TaskManager *manager, int client_socket, const char *file_name, ConfigWorker *config) {
     Task new_task = {
         .task_id = client_socket, 

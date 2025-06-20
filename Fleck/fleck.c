@@ -690,7 +690,7 @@ int rebre_fitxer_worker(const char *output_file, const char *media_type, const c
     // 1. Rebre trama 0x04 amb FileSize & MD5SUM
     while (1) {
         bytes_read = safe_read(worker_fd, &trama, sizeof(trama));
-        write_message(STDOUT_FILENO, "[DEBUG] Esperant trama 0x04 del Worker...\n");
+        //write_message(STDOUT_FILENO, "[DEBUG] Esperant trama 0x04 del Worker...\n");
         if (bytes_read < 0) {
             if (errno == EINTR) {
                 continue;  // Senyal, tornar a intentar

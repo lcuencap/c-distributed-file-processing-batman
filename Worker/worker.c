@@ -662,8 +662,9 @@ int inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, vo
     pthread_mutex_lock(mutex);
     int *worker_count = (int *)(*shared_mem);
     if (primer_worker) *worker_count = 0;
-    __sync_fetch_and_add(worker_count, 1);
+    (*worker_count)++;  
     pthread_mutex_unlock(mutex);
+
 
     return primer_worker;  
 
@@ -675,7 +676,11 @@ int inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, vo
  */
 void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
     write_message(STDOUT_FILENO, "\n================== DUMP DE MEMÒRIA COMPARTIDA ==================\n");
-
+    
+    int *worker_count = (int *)shared_mem;
+    char count_msg[128];
+    snprintf(count_msg, sizeof(count_msg), "Workers actius: %d\n", *worker_count);
+    write_message(STDOUT_FILENO, count_msg);
     char *ptr = (char *)shared_mem + sizeof(int);
 
     size_t offset = 0;
@@ -705,6 +710,8 @@ void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
     write_message(STDOUT_FILENO, "==============================================================\n\n");
 }
 
+
+
 /**
  * Elimina totes les tasques de la memòria compartida (reseteig complet).
  * @param shared_mem Punter a la memòria compartida.
@@ -712,7 +719,7 @@ void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
  */
 void netejar_memoria_tasques(void *shared_mem, size_t mem_size, pthread_mutex_t *shared_mem_mutex) {
     pthread_mutex_lock(shared_mem_mutex);
-
+    *((int *)shared_mem) = 0;  
     char *ptr = (char *)shared_mem + sizeof(int);
 
     size_t offset = 0;

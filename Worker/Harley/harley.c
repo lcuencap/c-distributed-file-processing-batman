@@ -38,23 +38,6 @@ pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 volatile sig_atomic_t keep_running = 1;
 
 
-
-void mostrar_estat_fitxer(const char *nom) {
-    struct stat st;
-    if (stat(nom, &st) == 0) {
-        char dbg[512];
-        snprintf(dbg, sizeof(dbg),
-            "[DEBUG][FITXER] '%s' -> mida: %ld bytes, permisos: %o\n",
-            nom, st.st_size, st.st_mode & 0777);
-        write_message(STDOUT_FILENO, dbg);
-    } else {
-        char err[256];
-        snprintf(err, sizeof(err), "[DEBUG][FITXER] '%s' NO accessible (%s)\n", nom, strerror(errno));
-        write_message(STDERR_FILENO, err);
-    }
-}
-
-
 /**
  * Copia un fitxer origen a destí
  */
@@ -124,10 +107,10 @@ int processar_media(const char *file_name, int factor) {
         snprintf(msg, sizeof(msg), "[HARLEY] Compressió d'imatge finalitzada, resultat: %d\n", result);
         write_message(STDOUT_FILENO, msg);
     } else if (strstr(file_name, ".mp3")) {
-        write_message(STDERR_FILENO, "Error: .mp3 no suportat. Només .wav.\n");
+        write_message(STDERR_FILENO, "[ERROR] .mp3 no suportat. Només .wav.\n");
         result = ERROR_NOT_WAV;
     } else {
-        write_message(STDERR_FILENO, "Error: Tipus de fitxer no suportat per a compressió.\n");
+        write_message(STDERR_FILENO, "[ERROR] Tipus de fitxer no suportat per a compressió.\n");
         result =  ERROR_UNSUPPORTED_FORMAT;
     }
 
@@ -154,8 +137,6 @@ int processar_media(const char *file_name, int factor) {
 }
 
 
-
-
 /**
  * @brief Envia un heartbeat a Gotham per indicar que el worker segueix actiu.
  * @param signo Senyal que ha activat la funció (no utilitzat).
@@ -168,14 +149,14 @@ void enviar_heartbeat(int signo) {
     inicialitzar_trama(&heartbeat_trama, 0x12, "");
 
     if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
-        write_message(STDERR_FILENO, "Error enviant heartbeat a Gotham.\n");
+        write_message(STDERR_FILENO, "[ERROR] Error enviant heartbeat a Gotham.\n");
         write_message(STDERR_FILENO, "Intentant reconnectar...\n");
         if (reconnectar_gotham(&config, keep_running) == 0) {
             write_message(STDOUT_FILENO, "Reconnexió amb Gotham exitosa.\n");
             write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
             alarm(10);
         } else {
-            write_message(STDERR_FILENO, "Error en la reconnexió amb Gotham.\n");
+            write_message(STDERR_FILENO, "[ERROR] Error en la reconnexió amb Gotham.\n");
             keep_running = 0; 
             pthread_cond_broadcast(&queue_not_empty);
             return;            
@@ -185,7 +166,13 @@ void enviar_heartbeat(int signo) {
     } 
 }
 
-
+/**
+ * Aquest thread s'encarrega de gestionar les tasques rebudes des de Fleck.
+ * Cada tasca es processa de manera independent i es gestiona la recepció del fitxer,   
+ * processament i enviament de resposta.
+ * @param arg Punter a l'argument que conté el socket del client.
+ * @return Retorna NULL quan la tasca ha finalitzat.
+ */
 void *handle_task(void *arg) {
     int client_socket = *(int *)arg;
     free(arg);
@@ -198,19 +185,19 @@ void *handle_task(void *arg) {
 
     Trama request_trama;
     if (safe_read(client_socket, &request_trama, sizeof(Trama)) < 0) {
-        write_message(STDERR_FILENO, "Error: No es pot llegir la trama completa de 256 bytes\n");
+        write_message(STDERR_FILENO, "[ERROR] No es pot llegir la trama completa de 256 bytes\n");
         enviar_resposta_connexio_inicial(client_socket, 0);
         return NULL;
     }
 
     if (request_trama.data_length > sizeof(request_trama.data)) {
-        write_message(STDERR_FILENO, "Error: Data_length massa gran, descartant trama\n");
+        write_message(STDERR_FILENO, "[ERROR] Data_length massa gran, descartant trama\n");
         enviar_resposta_connexio_inicial(client_socket, 0);
         return NULL;
     }
 
     if (request_trama.type != 0x03) {
-        write_message(STDERR_FILENO, "Error: Trama rebutjada per tipus incorrecte\n");
+        write_message(STDERR_FILENO, "[ERROR] Trama rebutjada per tipus incorrecte\n");
         enviar_resposta_connexio_inicial(client_socket, 0);
         return NULL;
     }
@@ -266,11 +253,11 @@ void *handle_task(void *arg) {
     write_message(STDOUT_FILENO, debug);
 
     if (!metadata) {
-        write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
+        write_message(STDOUT_FILENO, "[ERROR] Tasca no existent, creant nova tasca.\n");
         metadata = alloc_task_metadata(file_name, file_size, received_checksum,
                                         &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
         if (!metadata) {
-            write_message(STDERR_FILENO, "Error: No s'ha pogut reservar espai per la nova tasca.\n");
+            write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar espai per la nova tasca.\n");
             //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
             return NULL;
         }
@@ -287,7 +274,7 @@ void *handle_task(void *arg) {
 
     write_message(STDOUT_FILENO, "[HARLEY] Iniciant recepció de fitxer...\n");
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
-        write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
+        write_message(STDERR_FILENO, "[ERROR] Error rebent el fitxer.\n");
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         return NULL;
     }
@@ -302,7 +289,7 @@ void *handle_task(void *arg) {
     write_message(STDOUT_FILENO, "\n");
     
     if (processar_media(file_name, factor) != NO_ERROR) {
-        write_message(STDERR_FILENO, "Error processant el fitxer.\n");
+        write_message(STDERR_FILENO, "[ERROR] Error processant el fitxer.\n");
 
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         return NULL;
@@ -442,41 +429,12 @@ void listener_harley_principal(ConfigWorker *config) {
         
         if (client_socket < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                if (!keep_running) break;  // <-- Afegeix això aquí també
-                usleep(100000);  // 100 ms
-                continue;
+                if (!keep_running) break;  
+                usleep(100000); // Evitar bucle de CPU 100%  
             } else {
                 break;
             }
         }
-        
-        
-
-        // Comprovar si Fleck s'ha desconnectat abans de començar la tasca
-        /*if (detectar_desconnexio_fleck(client_socket)) {
-            gestionar_desconnexio_fleck("Tasca desconeguda", client_socket, config->base.socket_fd);
-            continue;
-        }
-
-        pthread_t thread_id;
-        int *client_socket_ptr = malloc(sizeof(int));
-        if (!client_socket_ptr) {
-            close(client_socket);
-            continue;
-        }
-        *client_socket_ptr = client_socket;
-
-        printf("[HARLEY] Creant nou thread per connexió entrant\n");
-        int ret = pthread_create(&thread_id, NULL, handle_task, client_socket_ptr);
-        if (ret != 0) {
-            perror("[HARLEY] Error creant thread");
-            free(client_socket_ptr);
-            close(client_socket);
-        } else {
-            pthread_detach(thread_id);
-            printf("[HARLEY] Thread creat i desvinculat\n");
-        }
-        */
 
         enqueue_connection(client_socket, connection_queue, &queue_rear, &queue_count,
             &queue_mutex, &queue_not_empty, &queue_not_full);
@@ -708,6 +666,13 @@ int main(int argc, char *argv[]) {
 
     int primer_worker = inicialitzar_memoria_compartida("/harley_shared_mem", &shared_mem_fd, &shared_mem, 
                                     current_mem_size, &shared_mem_mutex); 
+    
+    //netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
+
+
+    pthread_mutex_lock(&shared_mem_mutex);
+    volcar_memoria_tasques(shared_mem, current_mem_size);
+    pthread_mutex_unlock(&shared_mem_mutex);                                
 
     int *worker_count = (int *)shared_mem;
 
@@ -715,6 +680,10 @@ int main(int argc, char *argv[]) {
         write_message(STDOUT_FILENO, "[DEBUG] Aquest és el primer worker. Inicialitzant estat de memòria...\n");
         netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
     }
+
+    pthread_mutex_lock(&shared_mem_mutex);
+    volcar_memoria_tasques(shared_mem, current_mem_size);
+    pthread_mutex_unlock(&shared_mem_mutex);  
 
     char dbg[128];
     snprintf(dbg, sizeof(dbg), "[DEBUG] Nombre actual de workers després d’iniciar: %d\n", *worker_count);

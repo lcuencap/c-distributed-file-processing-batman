@@ -39,12 +39,14 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
                                    void **shared_mem_ptr, size_t *mem_size,
                                   int shared_mem_fd, pthread_mutex_t *mutex);
 void free_task_metadata(TaskMetadata *metadata, pthread_mutex_t *mutex);
+void mostrar_estat_fitxer(const char *nom);
 
 
 // Funcions de gestió de memòria compartida
 int inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, void **shared_mem, size_t mem_size, pthread_mutex_t *mutex);
 TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, const char *file_name, pthread_mutex_t *mutex);
 void netejar_memoria_tasques(void *shared_mem, size_t mem_size, pthread_mutex_t *shared_mem_mutex);
+void volcar_memoria_tasques(void *shared_mem, size_t mem_size);
 
 // Funcions de comunicació amb Gotham
 int inicialitzar_connexio_gotham(ConfigWorker *config);

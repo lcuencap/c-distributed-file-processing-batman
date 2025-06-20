@@ -710,7 +710,24 @@ void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
     write_message(STDOUT_FILENO, "==============================================================\n\n");
 }
 
-
+/**
+ * @brief Mostra l'estat d'un fitxer a la sortida estàndard.
+ * @param nom Nom del fitxer a mostrar.
+ */
+void mostrar_estat_fitxer(const char *nom) {
+    struct stat st;
+    if (stat(nom, &st) == 0) {
+        char dbg[512];
+        snprintf(dbg, sizeof(dbg),
+            "[DEBUG][FITXER] '%s' -> mida: %ld bytes, permisos: %o\n",
+            nom, st.st_size, st.st_mode & 0777);
+        write_message(STDOUT_FILENO, dbg);
+    } else {
+        char err[256];
+        snprintf(err, sizeof(err), "[DEBUG][FITXER] '%s' NO accessible (%s)\n", nom, strerror(errno));
+        write_message(STDERR_FILENO, err);
+    }
+}
 
 /**
  * Elimina totes les tasques de la memòria compartida (reseteig complet).

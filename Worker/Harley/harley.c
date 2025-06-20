@@ -38,6 +38,7 @@ pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 volatile sig_atomic_t keep_running = 1;
 
 
+
 /**
  * Copia un fitxer origen a destí
  */

@@ -382,7 +382,13 @@ void enviar_trama_desconnexio_worker(int worker_fd) {
         inicialitzar_trama(&trama, 0x07, config.username);
         write(worker_fd, &trama, sizeof(trama));
         close(worker_fd);
-        worker_fd = -1;
+        
+        if (worker_fd == harley_fd) {
+            harley_fd = -1;
+        } else if (worker_fd == enigma_fd) {
+            enigma_fd = -1;
+        }
+
         write_message(STDOUT_FILENO, "Desconnectat correctament del worker.\n");
     }
 }
@@ -417,8 +423,11 @@ void ctrlc_handler(int sig) {
         enviar_trama_desconnexio_gotham();  
     }
 
-    if (worker_fd >= 0) {
-        enviar_trama_desconnexio_worker();
+    if (harley_fd >= 0) {
+        enviar_trama_desconnexio_worker(harley_fd);
+    }
+    if (enigma_fd >= 0) {
+        enviar_trama_desconnexio_worker(enigma_fd);
     }
 
     write_message(STDOUT_FILENO, "Fleck finalitzat correctament.\n");
@@ -514,14 +523,14 @@ int validar_connexio_distort_worker(int worker_fd, const char *file_name, uint32
     // Enviar metadades del fitxer al Worker
     if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
         write_message(STDOUT_FILENO, "Error enviant la trama de informació del  fitxer al worker.\n");
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
 
 
     if (esperar_resposta_connexio() != 0) {
         write_message(STDOUT_FILENO, "Error validant la connexió amb el Worker.\n");
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
 
@@ -540,7 +549,7 @@ int validar_connexio_distort_worker(int worker_fd, const char *file_name, uint32
  * @param factor
  * @return 0 si la recuperació ha tingut èxit, <0 si ha fallat.
  */
-int gestionar_caiguda_worker(const char *fase, const char *media_type, const char *file_name, int fd_a_tancar, 
+int gestionar_caiguda_worker(int worker_fd, const char *fase, const char *media_type, const char *file_name, int fd_a_tancar, 
                              uint32_t file_size, const char *md5sum, int factor) {
     char buffer[128];
     snprintf(buffer, sizeof(buffer), "[FLECK] Worker desconnectat inesperadament durant la fase: %s.\n", fase);
@@ -551,7 +560,7 @@ int gestionar_caiguda_worker(const char *fase, const char *media_type, const cha
         write_message(STDOUT_FILENO, "[FLECK] S'ha tancat el fitxer o descriptor actiu.\n");
     }
 
-    enviar_trama_desconnexio_worker();
+    enviar_trama_desconnexio_worker(worker_fd);
     write_message(STDOUT_FILENO, "[FLECK] Sol·licitant un nou Worker...\n");
 
     char new_worker_ip[16];
@@ -560,7 +569,7 @@ int gestionar_caiguda_worker(const char *fase, const char *media_type, const cha
         return ERROR_NEW_WORKER;
     }
 
-    int worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
+    int new_worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
 
     /*if (strcmp(media_type, "media") == 0) {
         if (harley_fd >= 0) close(harley_fd);
@@ -577,9 +586,9 @@ int gestionar_caiguda_worker(const char *fase, const char *media_type, const cha
     }*/
    
 
-    if (validar_connexio_distort_worker(worker_fd, file_name, file_size, md5sum, factor) < 0) {
+    if (validar_connexio_distort_worker(new_worker_fd, file_name, file_size, md5sum, factor) < 0) {
         write_message(STDOUT_FILENO, "[FLECK] Error validant connexió amb el nou Worker.\n");
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(new_worker_fd);
         return ERROR_VALIDATION;
     }
 
@@ -598,7 +607,7 @@ int gestionar_caiguda_worker(const char *fase, const char *media_type, const cha
  * @param factor Factor de distorsió.
  * @return 0 si l'enviament és correcte, -1 si hi ha un error.
  */
-int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
+int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
     Trama trama;
     struct timeval timeout;
     off_t total_enviat = 0;
@@ -710,6 +719,7 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
 
 /**
  * Rebrà el fitxer del Worker i el desarà al fitxer de sortida especificat.
+ * @param worker_fd Descriptor del socket del worker.
  * @param output_file Fitxer de sortida on es desarà el contingut rebut.
  * @param media_type Tipus de media ("media", "text").
  * @param file_name Nom del fitxer que s'està rebent.
@@ -718,7 +728,7 @@ int enviar_fitxer_worker(const char *media_type, const char *file_name, uint32_t
  * @param factor Factor de distorsió.
  * @return 0 si la recepció és correcta, <0 si hi ha un error.
  */
-int rebre_fitxer_worker(const char *output_file, const char *media_type, const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
+int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *media_type, const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
     Trama trama;
     time_t last_print = time(NULL);
     ssize_t bytes_read;
@@ -932,7 +942,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
 
 
     if (enviar_fitxer_worker(worker_fd, media_type, file_name, file_size, md5sum, factor) < 0) {
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
 
@@ -945,7 +955,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     char output_file[256];
     snprintf(output_file, sizeof(output_file), "distorted_%s", file_name);
     if (rebre_fitxer_worker(worker_fd, output_file, media_type, file_name, file_size, md5sum, factor) < 0) {
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
 

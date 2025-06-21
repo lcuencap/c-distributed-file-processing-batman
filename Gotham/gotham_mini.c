@@ -65,6 +65,45 @@ void log_event(const char *event) {
 }
 
 
+void inicialitzar_arkham_logger() {
+    if (pipe(log_pipe_fd) == -1) {
+        write_message(STDERR_FILENO, "Error creant la pipe per Arkham\n");
+        exit(EXIT_FAILURE);
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        write_message(STDERR_FILENO, "Error en fork per Arkham\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid == 0) { // Procés fill: Arkham
+        close(log_pipe_fd[1]); // Tanca escriptura
+
+        int log_fd = open("logs.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (log_fd < 0) {
+            write_message(STDERR_FILENO, "Error obrint logs.txt\n");
+            exit(EXIT_FAILURE);
+        }
+
+        signal(SIGINT, SIG_IGN);
+        signal(SIGTERM, SIG_IGN);
+
+        char buffer[512];
+        ssize_t bytes_read;
+        while ((bytes_read = read(log_pipe_fd[0], buffer, sizeof(buffer))) > 0) {
+            write(log_fd, buffer, bytes_read);
+        }
+
+        close(log_fd);
+        close(log_pipe_fd[0]);
+        exit(0);
+    }
+
+    // Procés pare: Gotham
+    arkham_pid = pid;
+    close(log_pipe_fd[0]); // Tanca lectura
+}
 
 /*
 * Envia una trama d'error quan es rebutja una trama per format o checksum incorrecte.
@@ -842,6 +881,9 @@ void cleanup(int sig) {
     }
     free(flecks);
     pthread_mutex_unlock(&fleck_mutex);
+    
+    kill(arkham_pid, SIGTERM);
+    close(log_pipe_fd[1]);  // Tanca la pipe
 
     log_event("Tots els recursos s’han alliberat. Adeu.");
     exit(0);
@@ -869,6 +911,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     close(fd);
+
+    inicialitzar_arkham_logger();
+    log_event("Logger Arkham inicialitzat correctament.");
+
 
 
     signal(SIGINT, cleanup);

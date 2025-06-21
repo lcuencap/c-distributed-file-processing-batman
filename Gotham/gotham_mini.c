@@ -193,41 +193,32 @@ void eliminar_worker_per_socket(int socket_fd) {
  */
 void *monitoritzar_heartbeats(void *arg) {
     (void)arg;
-
-    const int TIMEOUT = 15;  // segons
+    const int TIMEOUT = 20;
 
     while (1) {
         time_t ara = time(NULL);
 
-        for (int i = 0; i < num_workers; i++) {
-            int worker_id;
-            int socket_fd;
-            time_t last_heartbeat;
-
-            pthread_mutex_lock(&worker_mutex);
-            // Copiem les dades crítiques que necessitem abans de sortir del lock
-            if (i < num_workers) {  // Comprovació per si num_workers ha canviat
-                worker_id = workers[i].worker_id;
-                socket_fd = workers[i].base.socket_fd;
-                last_heartbeat = workers[i].last_heartbeat;
-            }
-            pthread_mutex_unlock(&worker_mutex);
-
-            double diff = difftime(ara, last_heartbeat);
+        pthread_mutex_lock(&worker_mutex);
+        for (int i = 0; i < num_workers;) {
+            double diff = difftime(ara, workers[i].last_heartbeat);
             if (diff > TIMEOUT) {
                 char log_msg[128];
                 snprintf(log_msg, sizeof(log_msg),
                          "Worker ID %d ha superat el timeout de %ds. Eliminant-lo.",
-                         worker_id, TIMEOUT);
+                         workers[i].worker_id, TIMEOUT);
                 log_event(log_msg);
 
+                int socket_fd = workers[i].base.socket_fd;
+                // Eliminar el worker de la llista
                 eliminar_worker_per_socket(socket_fd);
-
-                i = -1;  // Reiniciem l’iteració perquè la llista ha canviat
-                break;
+                // No fem i++ perquè l’array s’ha mogut
+            } else {
+                i++;  // Només incrementem si no s’elimina
             }
         }
-        sleep(5);  // Interval entre comprovacions
+        pthread_mutex_unlock(&worker_mutex);
+
+        sleep(5);
     }
 
     return NULL;

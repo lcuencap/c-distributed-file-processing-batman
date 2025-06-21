@@ -53,6 +53,14 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     return 0;
 }
 
+/**
+ * @brief Neteja la connexió i allibera els recursos en cas d'error.
+ * @param client_socket Socket del client.
+ * @param metadata Metadades de la tasca.
+ * @param shared_mem_mutex Mutex per la memòria compartida.
+ * @param active_threads Punter a la variable que manté el recompte de fils actius.
+ * @param threads_mutex Mutex per protegir l'accés a active_threads.
+ */
 void netejar_connexio_per_error(int client_socket, TaskMetadata *metadata, pthread_mutex_t *shared_mem_mutex, int *active_threads, pthread_mutex_t *threads_mutex) {
     if (client_socket >= 0) {
         close(client_socket);
@@ -66,6 +74,7 @@ void netejar_connexio_per_error(int client_socket, TaskMetadata *metadata, pthre
     active_threads--;
     pthread_mutex_unlock(threads_mutex);
 }
+
 
 
 /**

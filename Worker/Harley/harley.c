@@ -570,7 +570,7 @@ void *gotham_listener_thread(void *arg) {
                 break;
         }
     }
-    write_message(STDOUT_FILENO, "1234567890 [HARLEY] Gotham loop finalitzat.\n");
+    write_message(STDOUT_FILENO, "[HARLEY] Gotham loop finalitzat.\n");
     return NULL;
 }
 
@@ -725,12 +725,9 @@ int main(int argc, char *argv[]) {
     write_message(STDOUT_FILENO, dbg);
 
 
-   
-
     inicialitzar_connexio_gotham(&config);
     int flags = fcntl(config.base.socket_fd, F_GETFL, 0);
     fcntl(config.base.socket_fd, F_SETFL, flags | O_NONBLOCK);
-
 
 
     pthread_create(&gotham_thread, NULL, gotham_listener_thread, &config);
@@ -738,7 +735,6 @@ int main(int argc, char *argv[]) {
     pthread_t heartbeat_tid;
     pthread_create(&heartbeat_tid, NULL, heartbeat_thread, NULL);
     pthread_detach(heartbeat_tid);  
-
 
 
     if (config.is_primary_worker) {
@@ -759,8 +755,6 @@ int main(int argc, char *argv[]) {
     }
 
     gestionar_signal_interrupt(SIGINT);
-
-
 
     write_message(STDOUT_FILENO, "Worker Harley finalitzat correctament.\n");
         

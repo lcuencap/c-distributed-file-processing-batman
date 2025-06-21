@@ -750,6 +750,8 @@ int main(int argc, char *argv[]) {
         pthread_mutex_unlock(&threads_mutex);
 
         if (threads == 0) break;
+        
+        char dbg_msg[128];
         snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] Esperant que acabin %d distorsions...\n", threads);
         write_message(STDOUT_FILENO, dbg_msg);
         sleep(10);

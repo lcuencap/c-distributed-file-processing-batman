@@ -40,16 +40,7 @@ int enigma_fd = -1;
 static DistorsioStatus *head = NULL;
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/** 
-* Retorna un punter al descriptor de fitxer del worker segons el tipus de media.
-* @param media_type Tipus de media ("media" o "text").
-* @return Punter al descriptor de fitxer del worker corresponent, o NULL si no és vàlid.
-*/
-int* get_worker_fd_ptr(const char *media_type) {
-    if (strcasecmp(media_type, "media") == 0) return &harley_fd;
-    if (strcasecmp(media_type, "text") == 0) return &enigma_fd;
-    return NULL; 
-}
+
 
 
 /**
@@ -82,19 +73,6 @@ void register_new_file(const char *file_name, const char *media_type) {
     if (new_status) {
         strncpy(new_status->file_name, file_name, sizeof(new_status->file_name));
         new_status->file_name[sizeof(new_status->file_name) - 1] = '\0';
-
-        if (media_type) {
-            if (strcasecmp(media_type, "media") == 0) {
-                new_status->tipus = MEDIA;
-            } else if (strcasecmp(media_type, "text") == 0) {
-                new_status->tipus = TEXT;
-            } else {
-                new_status->tipus = TIPUS_DESCONEGUT;
-            }
-        } else {
-            new_status->tipus = TIPUS_DESCONEGUT;
-        }
-        
         new_status->progress = 0;
         new_status->error = 0; 
         new_status->next = head;
@@ -382,7 +360,7 @@ void enviar_trama_desconnexio_worker(int worker_fd) {
         inicialitzar_trama(&trama, 0x07, config.username);
         write(worker_fd, &trama, sizeof(trama));
         close(worker_fd);
-        
+
         if (worker_fd == harley_fd) {
             harley_fd = -1;
         } else if (worker_fd == enigma_fd) {

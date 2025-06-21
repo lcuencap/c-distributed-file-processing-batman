@@ -31,10 +31,26 @@
 ConfigFleck config;
 int connected_to_gotham = 0;  // Indica si Fleck està connectat a Gotham
 int sock_fd = -1;             // Descriptor del socket connectat a Gotham
-int worker_fd = -1;          // Descriptor del socket connectat al worker
+
+int harley_fd = -1;
+int enigma_fd = -1;
+
+
 
 static DistorsioStatus *head = NULL;
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/** 
+* Retorna un punter al descriptor de fitxer del worker segons el tipus de media.
+* @param media_type Tipus de media ("media" o "text").
+* @return Punter al descriptor de fitxer del worker corresponent, o NULL si no és vàlid.
+*/
+int* get_worker_fd_ptr(const char *media_type) {
+    if (strcasecmp(media_type, "media") == 0) return &harley_fd;
+    if (strcasecmp(media_type, "text") == 0) return &enigma_fd;
+    return NULL; 
+}
+
 
 /**
  * Marca un fitxer com a error en el processat.
@@ -57,7 +73,7 @@ void mark_error_status(const char *file_name) {
  * Registra un nou fitxer per processar.
  * @param file_name Nom del fitxer a processar.
  */
-void register_new_file(const char *file_name) {
+void register_new_file(const char *file_name, const char *media_type) {
     char debug_buf[256];
     snprintf(debug_buf, sizeof(debug_buf), "[DEBUG] Registrada nova distorsió: %s\n", file_name);
     write_message(STDERR_FILENO, debug_buf);
@@ -66,6 +82,19 @@ void register_new_file(const char *file_name) {
     if (new_status) {
         strncpy(new_status->file_name, file_name, sizeof(new_status->file_name));
         new_status->file_name[sizeof(new_status->file_name) - 1] = '\0';
+
+        if (media_type) {
+            if (strcasecmp(media_type, "media") == 0) {
+                new_status->tipus = MEDIA;
+            } else if (strcasecmp(media_type, "text") == 0) {
+                new_status->tipus = TEXT;
+            } else {
+                new_status->tipus = TIPUS_DESCONEGUT;
+            }
+        } else {
+            new_status->tipus = TIPUS_DESCONEGUT;
+        }
+        
         new_status->progress = 0;
         new_status->error = 0; 
         new_status->next = head;
@@ -347,7 +376,7 @@ void print_all_progress() {
  * Envia una trama de desconnexió al worker de tipus 0x07 i tanca el socket.
  * Aquesta funció s'ha d'invocar quan Fleck es vol desconnectar del worker.
  */
-void enviar_trama_desconnexio_worker() {
+void enviar_trama_desconnexio_worker(int worker_fd) {
     if (worker_fd >= 0) {
         Trama trama;
         inicialitzar_trama(&trama, 0x07, config.username);
@@ -391,6 +420,7 @@ void ctrlc_handler(int sig) {
     if (worker_fd >= 0) {
         enviar_trama_desconnexio_worker();
     }
+
     write_message(STDOUT_FILENO, "Fleck finalitzat correctament.\n");
     exit(0);
 }
@@ -468,13 +498,14 @@ void gestionar_comanda_list(const char **media_types, size_t count) {
 
 /**
  * Valida la connexió amb el Worker enviant trama 0x03 i esperant la resposta del worker (0x03).
+ * @param worker_fd Descriptor del socket del worker.
  * @param file_name Nom del fitxer a enviar.
  * @param file_size Mida del fitxer en bytes.
  * @param md5sum MD5SUM del fitxer per verificar la integritat.
  * @param factor Factor de distorsió.
  * @return 0 si la connexió és vàlida, -1 si hi ha un error.
  */
-int validar_connexio_distort_worker(const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
+int validar_connexio_distort_worker(int worker_fd, const char *file_name, uint32_t file_size, const char *md5sum, int factor) {
     Trama trama;
     char data[245];
     snprintf(data, sizeof(data), "%s&%u&%s&%d", file_name, file_size, md5sum, factor);
@@ -529,12 +560,24 @@ int gestionar_caiguda_worker(const char *fase, const char *media_type, const cha
         return ERROR_NEW_WORKER;
     }
 
-    worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
-    if (worker_fd < 0) {
-        return ERROR_CONNECT_NEW;
-    }
+    int worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
 
-    if (validar_connexio_distort_worker(file_name, file_size, md5sum, factor) < 0) {
+    /*if (strcmp(media_type, "media") == 0) {
+        if (harley_fd >= 0) close(harley_fd);
+        harley_fd = connectar_a_server(worker_ip, worker_port);
+        if (harley_fd < 0) {
+            return ERROR_CONNECT_NEW;
+        }
+    } else {
+        if (enigma_fd >= 0) close(enigma_fd);
+        enigma_fd = connectar_a_server(worker_ip, worker_port);
+        if (enigma_fd < 0) {
+            return ERROR_CONNECT_NEW;
+        }
+    }*/
+   
+
+    if (validar_connexio_distort_worker(worker_fd, file_name, file_size, md5sum, factor) < 0) {
         write_message(STDOUT_FILENO, "[FLECK] Error validant connexió amb el nou Worker.\n");
         enviar_trama_desconnexio_worker();
         return ERROR_VALIDATION;
@@ -858,14 +901,25 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     write_message(STDOUT_FILENO, "\n");
     
 
-    worker_fd = connectar_a_server(worker_ip, worker_port);
+    int worker_fd = connectar_a_server(worker_ip, worker_port);
 
-    
     if (worker_fd < 0) {
         write_message(STDOUT_FILENO, "Error connectant amb el worker.\n");
         enviar_trama_desconnexio_worker();
         return -1;
     }
+
+    if (strcmp(media_type, "media") == 0) {
+        harley_fd = worker_fd;  // Assignar el descriptor de socket al worker de media
+    } else if (strcmp(media_type, "text") != 0) {
+        enigma_fd = worker_fd;  // Assignar el descriptor de socket al worker de text
+    } else {
+        write_message(STDOUT_FILENO, "Error: Tipus de media no vàlid. Ha de ser 'media' o 'text'.\n");
+        enviar_trama_desconnexio_worker(worker_fd);
+        return -1;
+    }
+
+
     
     uint32_t file_size;
     char md5sum[33]; 
@@ -877,7 +931,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     write_message(STDOUT_FILENO, "Distorsion started!\n");
 
 
-    if (enviar_fitxer_worker(media_type, file_name, file_size, md5sum, factor) < 0) {
+    if (enviar_fitxer_worker(worker_fd, media_type, file_name, file_size, md5sum, factor) < 0) {
         enviar_trama_desconnexio_worker();
         return -1;
     }
@@ -890,12 +944,12 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
 
     char output_file[256];
     snprintf(output_file, sizeof(output_file), "distorted_%s", file_name);
-    if (rebre_fitxer_worker(output_file, media_type, file_name, file_size, md5sum, factor) < 0) {
+    if (rebre_fitxer_worker(worker_fd, output_file, media_type, file_name, file_size, md5sum, factor) < 0) {
         enviar_trama_desconnexio_worker();
         return -1;
     }
 
-    enviar_trama_desconnexio_worker();  
+    enviar_trama_desconnexio_worker(worker_fd);  
     return 0;
 }
 
@@ -909,6 +963,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
  * @return 0 si la petició s'envia correctament, -1 si hi ha un error.
  */
 int enviar_peticio_distorsio(const char *media_type, const char *file, int factor) {
+    int 
     if (!media_type || !file) {
         write_message(STDOUT_FILENO, "Error: Tipus de media o nom de fitxer no vàlid.\n");
         return -1;
@@ -958,7 +1013,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             strncpy(args->file_name, file, sizeof(args->file_name));
             args->factor = factor;
             if (*file) {
-                register_new_file(file); 
+                register_new_file(file, media_type); 
             }
 
             if (gestionar_distorsio_worker(media_type, args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {

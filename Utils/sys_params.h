@@ -36,10 +36,12 @@ typedef struct {
 } TaskMetadata;
 
 typedef enum { ENVIANT, ESPERANT, REBENT, FINALITZAT } EstatFase;
+typedef enum { MEDIA, TEXT, TIPUS_DESCONEGUT } TipusDistorsio;
 
 typedef struct DistorsioStatus {
     char file_name[256];
     int progress;
+    TipusDistorsio tipus;
     EstatFase estat;
     uint32_t mida_original;
     uint32_t mida_distorsionat;

@@ -12,8 +12,6 @@
 #include <libgen.h>
 #include <pthread.h>
 
-#define THREAD_POOL_SIZE 4
-
 // Variables globals
 static TaskManager task_manager;
 static ConfigWorker config;
@@ -29,12 +27,6 @@ pthread_t enigma_thread = 0;
 
 static int server_fd = -1; 
 
-int connection_queue[MAX_QUEUE_SIZE];
-int queue_front = 0, queue_rear = 0, queue_count = 0;
-
-pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
-pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
 volatile sig_atomic_t keep_running = 1;
 
 
@@ -106,7 +98,6 @@ void enviar_heartbeat(int signo) {
         } else {
             write_message(STDERR_FILENO, "[ERROR] Error en la reconnexió amb Gotham.\n");
             keep_running = 0; 
-            pthread_cond_broadcast(&queue_not_empty);
             return;            
         }
     } else {
@@ -399,29 +390,6 @@ void *handle_task(void *arg) {
     return NULL;
 }
 
-void *worker_loop(void *arg) {
-    (void) arg;  
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
-
-    while (keep_running) {
-        if (!keep_running) {
-            write_message(STDOUT_FILENO, "[ENIGMA] Finalitzant worker_loop per keep_running = 0\n");
-            break;
-        }
-
-        int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
-            &queue_mutex, &queue_not_empty, &queue_not_full, keep_running);
-
-        int *socket_ptr = malloc(sizeof(int));
-        if (!socket_ptr) continue;
-        *socket_ptr = client_socket;
-        handle_task(socket_ptr);
-    }
-    write_message(STDOUT_FILENO, "1234567890 [ENIGMA] Worker loop finalitzat.\n");
-    return NULL;
-}
-
 
 /**
  * @brief Escoltar connexions entrants i gestionar la possible desconnexió de Fleck.
@@ -433,14 +401,19 @@ void listener_enigma_principal(ConfigWorker *config) {
     write_message(STDOUT_FILENO, "[ENIGMA] Entrem al thread de listener de flecks.\n");
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    fcntl(server_fd, F_SETFL, O_NONBLOCK);  
 
     if (server_fd < 0) {
         write_message(STDERR_FILENO, "[ENIGMA] Error creant el socket del servidor.\n");
         exit(EXIT_FAILURE);
     }
+
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)); 
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        write_message(STDERR_FILENO, "[HARLEY] Error en setsockopt(SO_REUSEADDR).\n");
+        close(server_fd);
+        exit(EXIT_FAILURE);
+    }
+    fcntl(server_fd, F_SETFL, O_NONBLOCK);  
 
     struct sockaddr_in address = {
         .sin_family = AF_INET,
@@ -474,19 +447,68 @@ void listener_enigma_principal(ConfigWorker *config) {
 
     while (keep_running) {
         if (!keep_running) break;
-        int client_socket = accept(server_fd, NULL, NULL);
-        
-        if (client_socket < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                if (!keep_running) break;  
-                usleep(100000); // Evitar bucle de CPU 100%  
-            } else {
-                break;
+        fd_set readfds;
+        struct timeval timeout;
+
+        FD_ZERO(&readfds);
+        FD_SET(server_fd, &readfds);
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int activity = select(server_fd + 1, &readfds, NULL, NULL, &timeout);
+
+        if (activity < 0 && errno != EINTR) {
+            write_message(STDERR_FILENO, "[ERROR] select() ha fallat.\n");
+            break;
+        }
+
+        if (activity == 0) {
+            // Timeout: no connexions
+            continue;
+        }
+        if (FD_ISSET(server_fd, &readfds)) {
+            int client_socket = accept(server_fd, NULL, NULL);
+            
+            if (client_socket < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    write_message(STDOUT_FILENO, "[DEBUG] Motiu de -1 era EAGAIN o EWOULDBLOCK\n");
+                    if (!keep_running) break;  
+                    usleep(100000); // Evitar bucle de CPU 100%
+                    continue;  
+                } else {
+                    char dbg[128];
+                    snprintf(dbg, sizeof(dbg), "[ERROR] accept() ha fallat amb errno=%d (%s)\n", errno, strerror(errno));
+                    write_message(STDERR_FILENO, dbg);
+                    break;
+                }
+            }
+
+            if (client_socket >= 0) {
+                char dbg_msg[128];
+                snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] accept() retornó socket %d\n", client_socket);
+                write_message(STDOUT_FILENO, dbg_msg);
+
+                int *socket_ptr = malloc(sizeof(int));
+                if (!socket_ptr) {
+                    write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar memòria per al socket_ptr\n");
+                    close(client_socket);
+                    continue;
+                }
+
+                *socket_ptr = client_socket;
+
+                pthread_t task_thread;
+                if (pthread_create(&task_thread, NULL, handle_task, socket_ptr) != 0) {
+                    write_message(STDERR_FILENO, "[ERROR] No s'ha pogut crear el thread per a la tasca\n");
+                    close(client_socket);
+                    free(socket_ptr);
+                    continue;
+                }
+
+                pthread_detach(task_thread);  
             }
         }
 
-        enqueue_connection(client_socket, connection_queue, &queue_rear, &queue_count,
-            &queue_mutex, &queue_not_empty, &queue_not_full);
     }
 
     close(server_fd);
@@ -548,7 +570,6 @@ void *gotham_listener_thread(void *arg) {
             if (reconnectar_gotham(config, keep_running) < 0) {
                 write_message(STDERR_FILENO, "[ENIGMA] No s'ha pogut reconnectar amb Gotham. Aturant el worker.\n");
                 keep_running = 0;
-                pthread_cond_broadcast(&queue_not_empty);
                 break;  
             }
             continue;
@@ -610,10 +631,7 @@ void *gotham_listener_thread(void *arg) {
 void gestionar_signal_interrupt(int sig) {
     (void)sig;
     keep_running = 0;
-    // Desbloquejar qualsevol thread del pool en espera
-    write_message(STDOUT_FILENO, "[DEBUG] Despertant threads bloquejats en la cua...\n");
-    pthread_cond_broadcast(&queue_not_empty);
-    pthread_cond_broadcast(&queue_not_full);
+    
     write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
 
     // Enviar desconnexió a Gotham
@@ -691,6 +709,7 @@ int main(int argc, char *argv[]) {
         write_message(STDERR_FILENO, "Expected: ./enigma <config file>\n");
         return 1;
     }
+
     struct sigaction sa;
     sa.sa_handler = gestionar_signal_interrupt;
     sigemptyset(&sa.sa_mask);
@@ -749,23 +768,10 @@ int main(int argc, char *argv[]) {
     int flags = fcntl(config.base.socket_fd, F_GETFL, 0);
     fcntl(config.base.socket_fd, F_SETFL, flags | O_NONBLOCK);
     
-    pthread_t thread_pool[THREAD_POOL_SIZE];
-    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
-        pthread_create(&thread_pool[i], NULL, worker_loop, NULL);
-    }
-
 
     pthread_create(&gotham_thread, NULL, gotham_listener_thread, &config);
     configurar_heartbeats(enviar_heartbeat);
 
-
-    // Quan Ctrl+C no s’ha activat i el programa s’acaba normalment
-    pthread_cond_broadcast(&queue_not_empty);
-    pthread_cond_broadcast(&queue_not_full);
-
-    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
-        pthread_join(thread_pool[i], NULL);
-    }
 
     if (config.is_primary_worker) {
         pthread_join(enigma_thread, NULL);

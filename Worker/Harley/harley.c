@@ -28,16 +28,6 @@ pthread_t harley_thread = 0;
 
 static int server_fd = -1; 
 
-/*
-#define THREAD_POOL_SIZE 4
-
-int connection_queue[MAX_QUEUE_SIZE];
-int queue_front = 0, queue_rear = 0, queue_count = 0;
-pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t queue_not_empty = PTHREAD_COND_INITIALIZER;
-pthread_cond_t queue_not_full = PTHREAD_COND_INITIALIZER;
-*/
-
 volatile sig_atomic_t keep_running = 1;
 
 
@@ -361,30 +351,6 @@ void *handle_task(void *arg) {
     return NULL;
 }
 
-/*
-void *worker_loop(void *arg) {
-    (void) arg;  
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
-
-    while (keep_running) {
-        if (!keep_running) {
-            write_message(STDOUT_FILENO, "[HARLEY] Finalitzant worker_loop per keep_running = 0\n");
-            break;
-        }
-
-        int client_socket = dequeue_connection(connection_queue, &queue_front, &queue_count,
-            &queue_mutex, &queue_not_empty, &queue_not_full, keep_running);
-
-        int *socket_ptr = malloc(sizeof(int));
-        if (!socket_ptr) continue;
-        *socket_ptr = client_socket;
-        handle_task(socket_ptr);
-    }
-    write_message(STDOUT_FILENO, "1234567890 [HARLEY] Worker loop finalitzat.\n");
-    return NULL;
-}
-*/
 
 /**
  * @brief Escoltar connexions entrants i gestionar la possible desconnexió de Fleck.
@@ -393,7 +359,7 @@ void listener_harley_principal(ConfigWorker *config) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
-    write_message(STDOUT_FILENO, "[Harley] Entrem al thread de listener de flecks.\n");
+    write_message(STDOUT_FILENO, "[HARLEY] Entrem al thread de listener de flecks.\n");
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -511,12 +477,12 @@ void listener_harley_principal(ConfigWorker *config) {
     }
 
     close(server_fd);
-    write_message(STDOUT_FILENO, "[Harley] Fleck thread finalitzat.\n");
+    write_message(STDOUT_FILENO, "[HARLEY] Fleck thread finalitzat.\n");
 
 }
 
 void *listener_harley_wrapper(void *arg) {
-    write_message(STDOUT_FILENO, "[Harley] Entrem al wrapper del thread.\n");
+    write_message(STDOUT_FILENO, "[HARLEY] Entrem al wrapper del thread.\n");
     listener_harley_principal((ConfigWorker *)arg);
     return NULL;
 }
@@ -629,11 +595,6 @@ void gestionar_signal_interrupt(int sig) {
     (void)sig;
     keep_running = 0;
    
-    // Desbloquejar qualsevol thread del pool en espera
-
-    /*write_message(STDOUT_FILENO, "[DEBUG] Despertant threads bloquejats en la cua...\n");
-    pthread_cond_broadcast(&queue_not_empty);
-    pthread_cond_broadcast(&queue_not_full);*/
     write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
 
     // Enviar desconnexió a Gotham
@@ -693,11 +654,6 @@ void gestionar_signal_interrupt(int sig) {
         pthread_join(harley_thread, NULL);
     }
 
-    /*for (int i = 0; i < THREAD_POOL_SIZE; i++) {
-        if (!pthread_equal(thread_pool[i], (pthread_t)0)) {
-            pthread_join(thread_pool[i], NULL);
-        }
-    }*/
 
     // Alliberar memòria de configuració
     write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
@@ -715,10 +671,11 @@ int main(int argc, char *argv[]) {
         write_message(STDERR_FILENO, "Expected: ./harley <config file>\n");
         return 1;
     }
+
     struct sigaction sa;
     sa.sa_handler = gestionar_signal_interrupt;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;  // IMPORTANT: no posar SA_RESTART
+    sa.sa_flags = 0; 
     sigaction(SIGINT, &sa, NULL);
 
     int config_fd = open(argv[1], O_RDONLY);
@@ -774,24 +731,10 @@ int main(int argc, char *argv[]) {
     fcntl(config.base.socket_fd, F_SETFL, flags | O_NONBLOCK);
 
 
-    /*pthread_t thread_pool[THREAD_POOL_SIZE];
-    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
-        pthread_create(&thread_pool[i], NULL, worker_loop, NULL);
-    }*/
-
 
     pthread_create(&gotham_thread, NULL, gotham_listener_thread, &config);
     configurar_heartbeats(enviar_heartbeat);
 
-    /*
-    // Quan Ctrl+C no s’ha activat i el programa s’acaba normalment
-    pthread_cond_broadcast(&queue_not_empty);
-    pthread_cond_broadcast(&queue_not_full);
-    */
-
-    /*for (int i = 0; i < THREAD_POOL_SIZE; i++) {
-        pthread_join(thread_pool[i], NULL);
-    }*/
 
     if (config.is_primary_worker) {
         pthread_join(harley_thread, NULL);

@@ -39,25 +39,7 @@ int enigma_fd = -1;
 static DistorsioStatus *head = NULL;
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/**
- * Envia un heartbeat a Gotham per mantenir la connexió viva.
- * @param fd Descriptor del socket de Gotham.
- */
-void *heartbeat_gotham(void *arg) {
-    (void)arg;
-    while (1) {
-        sleep(5);
-        
-        Trama hb;
-        inicialitzar_trama(&hb, 0x12, "");
 
-        if (write(sock_fd, &hb, sizeof(hb)) != sizeof(hb)) {
-            write_message(STDOUT_FILENO, "X Gotham is down X\n");
-            parar_fleck(0);
-        }
-    }
-    return NULL;
-}
 
 
 /**
@@ -125,7 +107,7 @@ void mark_error_status(const char *file_name) {
  * Registra un nou fitxer per processar.
  * @param file_name Nom del fitxer a processar.
  */
-void register_new_file(const char *file_name, const char *media_type) {
+void register_new_file(const char *file_name) {
     char debug_buf[256];
     snprintf(debug_buf, sizeof(debug_buf), "[DEBUG] Registrada nova distorsió: %s\n", file_name);
     write_message(STDERR_FILENO, debug_buf);
@@ -475,6 +457,25 @@ void parar_fleck(int sig) {
 }
 
 
+/**
+ * Envia un heartbeat a Gotham per mantenir la connexió viva.
+ * @param fd Descriptor del socket de Gotham.
+ */
+void *heartbeat_gotham(void *arg) {
+    (void)arg;
+    while (1) {
+        sleep(5);
+        
+        Trama hb;
+        inicialitzar_trama(&hb, 0x12, "");
+
+        if (write(sock_fd, &hb, sizeof(hb)) != sizeof(hb)) {
+            write_message(STDOUT_FILENO, "X Gotham is down X\n");
+            parar_fleck(0);
+        }
+    }
+    return NULL;
+}
 
 /**
  * Estableix la connexió inicial amb Gotham enviant una trama de tipus 0x01.
@@ -1066,7 +1067,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             }
 
             if (*file) {
-                register_new_file(file, media_type); 
+                register_new_file(file); 
             }
 
             if (gestionar_distorsio_worker(media_type, args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {

@@ -59,12 +59,12 @@ void netejar_connexio_per_error(int client_socket, TaskMetadata *metadata, pthre
     }
 
     if (metadata != NULL) {
-        free_task_metadata(metadata, &shared_mem_mutex);
+        free_task_metadata(metadata, shared_mem_mutex);
     }
 
-    pthread_mutex_lock(&threads_mutex);
+    pthread_mutex_lock(threads_mutex);
     active_threads--;
-    pthread_mutex_unlock(&threads_mutex);
+    pthread_mutex_unlock(threads_mutex);
 }
 
 

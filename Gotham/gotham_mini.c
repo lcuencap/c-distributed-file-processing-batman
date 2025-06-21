@@ -699,14 +699,7 @@ void *gestionar_client_fleck(void *arg) {
                 write(client_socket, &resposta, sizeof(resposta));
                 return NULL;
             }
-            
-            int principal_socket_fd = -1;
-            pthread_mutex_lock(&worker_mutex);
-            ConfigWorker *principal = obtenir_principal(tipus_worker);
-            if (principal) {
-                principal_socket_fd = principal->base.socket_fd;
-            }
-            pthread_mutex_unlock(&worker_mutex);
+        
             
             char ip_tmp[64];
             int port_tmp = -1;

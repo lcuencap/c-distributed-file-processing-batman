@@ -14,11 +14,16 @@
 ConfigGotham config;
 pthread_t fleck_thread, worker_thread;
 pthread_t task_thread;
-pthread_t monitor_thread;
+
+
 ConfigWorker *workers = NULL;
 int num_workers = 0;
 int next_worker_id = 0;
 pthread_mutex_t worker_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+ConfigFleck *flecks = NULL;
+int num_flecks = 0;
+pthread_mutex_t fleck_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
 
@@ -191,7 +196,7 @@ void eliminar_worker_per_socket(int socket_fd) {
  * Monitoritza els heartbeats dels workers i elimina els que superin el timeout.
  * Aquesta funció s'executa en un thread separat.
  */
-void *monitoritzar_heartbeats(void *arg) {
+void *monitoritzar_heartbeats_workers(void *arg) {
     (void)arg;
     const int TIMEOUT = 20;
 
@@ -221,6 +226,45 @@ void *monitoritzar_heartbeats(void *arg) {
         sleep(5);
     }
 
+    return NULL;
+}
+
+void *monitoritzar_heartbeats_flecks(void *arg) {
+    (void)arg;
+    const int TIMEOUT = 20;
+
+    while (1) {
+        time_t ara = time(NULL);
+        pthread_mutex_lock(&fleck_mutex);
+        for (int i = 0; i < num_flecks;) {
+            double diff = difftime(ara, flecks[i].last_heartbeat);
+            if (diff > TIMEOUT) {
+                char log_msg[128];
+                snprintf(log_msg, sizeof(log_msg), 
+                        "Fleck '%s' ha superat el timeout de %ds. Eliminant-lo.",
+                        flecks[i].username, TIMEOUT);
+                log_event(log_msg);
+
+                close(flecks[i].base.socket_fd);
+                free(flecks[i].base.ip);
+                free(flecks[i].username);
+
+                for (int j = i; j < num_flecks - 1; j++) {
+                    flecks[j] = flecks[j + 1];
+                }
+                num_flecks--;
+                flecks = realloc(flecks, num_flecks * sizeof(ConfigFleck));
+                if (!flecks && num_flecks > 0) {
+                    log_event("Error real·locant memòria en eliminar Fleck.");
+                }
+                // No incrementem `i` perquè s'han mogut els elements
+            } else {
+                i++;
+            }
+        }
+        pthread_mutex_unlock(&fleck_mutex);
+        sleep(5);
+    }
     return NULL;
 }
 
@@ -490,6 +534,63 @@ ConfigWorker* buscar_alternatiu_no_principal(InstanceType tipus_worker) {
 
 
 /**
+ * Afegeix un nou fleck a la llista global de flecks.
+ * @param fleck Punter al ConfigFleck on s'ompliran les dades.
+ * @param socket Socket del fleck.
+ * @param data Dades del fleck en format "<username>&<ip>&<port>".
+ * @return Retorna 0 si s'ha afegit correctament, -1 si hi ha errors.
+ */
+int addFleck(ConfigFleck *fleck, int socket, const char *data) {
+    if (!data || socket <= 0 || !fleck) {
+        write_message(STDERR_FILENO, "Error: dades, socket o punter fleck no vàlids.\n");
+        return -1;
+    }
+
+    char data_copy[256];
+    strncpy(data_copy, data, sizeof(data_copy));
+    data_copy[sizeof(data_copy) - 1] = '\0';
+
+    char *username = strtok(data_copy, "&");
+    char *ip = strtok(NULL, "&");
+    char *port_str = strtok(NULL, "&");
+
+    if (!username || !ip || !port_str) {
+        write_message(STDERR_FILENO, "Error: format de dades de Fleck incorrecte.\n");
+        return -1;
+    }
+
+    int port = atoi(port_str);
+    if (port <= 0) {
+        write_message(STDERR_FILENO, "Error: port de Fleck invàlid.\n");
+        return -1;
+    }
+
+    // Omplim el punter passat per paràmetre
+    fleck->base.socket_fd = socket;
+    fleck->base.type = FLECK;
+    fleck->base.ip = strdup(ip);
+    fleck->base.port = port;
+    fleck->username = strdup(username);
+    fleck->work_dir = NULL;
+    fleck->last_heartbeat = time(NULL);
+
+    // S'afegeix a la llista global
+    pthread_mutex_lock(&fleck_mutex);
+    flecks = realloc(flecks, (num_flecks + 1) * sizeof(ConfigFleck));
+    if (!flecks) {
+        pthread_mutex_unlock(&fleck_mutex);
+        write_message(STDERR_FILENO, "Error reservant memòria per a Fleck.\n");
+        return -1;
+    }
+
+    flecks[num_flecks] = *fleck; // copiem el contingut del fleck al nou espai
+    num_flecks++;
+    pthread_mutex_unlock(&fleck_mutex);
+
+    return 0;
+}
+
+/**
  * Genera una cadena amb format "<ip>&<port>" a partir d’un worker.
  * @param worker Punter al ConfigWorker.
  * @param buffer Destí on s’escriurà la cadena (ha de tenir almenys 64 bytes).
@@ -515,31 +616,35 @@ void *gestionar_client_fleck(void *arg) {
             continue;
         }
         if (trama.type == 0x01) {
-            Trama resposta;
-            inicialitzar_trama(&resposta, 0x01, "");
-            write(client_socket, &resposta, sizeof(resposta));
-
-            // Extreure el nom del Fleck
-            char *username = strtok(trama.data, "&");
-
-            char msg[128];
-            if (username) {
-                snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)\n", username);
-            } else {
-                snprintf(msg, sizeof(msg), "Unknown user connected to Mr. J System. Let the chaos begin!:)\n");
+            ConfigFleck newFleck;
+            if (addFleck(&newFleck, client_socket, trama.data) < 0) {
+                // Si hi ha hagut un error afegint el Fleck
+                Trama resposta_ko;
+                inicialitzar_trama(&resposta_ko, 0x01, "CON_KO");
+                write(client_socket, &resposta_ko, sizeof(resposta_ko));
+                close(client_socket);
+                return NULL;
             }
+
+            // Si tot ha anat bé, enviar resposta OK
+            Trama resposta_ok;
+            inicialitzar_trama(&resposta_ok, 0x01, "");
+            write(client_socket, &resposta_ok, sizeof(resposta_ok));
+            char log_msg[256];
+            snprintf(log_msg, sizeof(log_msg), "Fleck connectat: %s (Socket:%d)", 
+                    newFleck.username, newFleck.base.socket_fd);
+            log_event(log_msg);
+
+            char msg[256];
+            snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)\n", newFleck.username);
             write(STDOUT_FILENO, msg, strlen(msg));
         } else if (trama.type == 0x07) {
-
             log_event("Fleck ha sol·licitat la desconnexió.");
             close(client_socket);
             break;
-
         } else if (trama.type == 0x10) {
-
             char *mediaType = strtok(trama.data, "&");
             char *fileName = strtok(NULL, "&");
-
             Trama resposta;
 
             if (!mediaType || !fileName) {
@@ -635,6 +740,16 @@ void *gestionar_client_fleck(void *arg) {
                 log_event("Error en enviar la trama: write incomplet o fallit.");
                 // opcional: tancar socket, marcar worker com caigut, etc.
             }
+        } else if (trama.type == 0x12) {
+            // Actualitzar l'últim heartbeat del Fleck
+            pthread_mutex_lock(&fleck_mutex);
+            for (int i = 0; i < num_flecks; i++) {
+                if (flecks[i].base.socket_fd == client_socket) {
+                    flecks[i].last_heartbeat = time(NULL);
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&fleck_mutex);
         } else {
             // Tipus desconegut de trama
             char missatge[64];
@@ -698,6 +813,40 @@ void *listener_fleck(void *arg) {
 }
 
 /**
+ * Funció de neteja que s'executa quan es rep un senyal SIGINT (Ctrl+C).
+ * Tanca tots els sockets oberts i allibera la memòria.
+ * @param sig Senyal rebut (no s'utilitza aquí, però és necessari per a la signatura).
+ */
+void cleanup(int sig) {
+    (void)sig;
+    log_event("S’ha rebut SIGINT. Tancant Gotham netament.");
+
+    // Tancar sockets de workers
+    pthread_mutex_lock(&worker_mutex);
+    for (int i = 0; i < num_workers; i++) {
+        close(workers[i].base.socket_fd);
+        free(workers[i].base.ip);
+        free(workers[i].ip_fleck);
+    }
+    free(workers);
+    pthread_mutex_unlock(&worker_mutex);
+
+    // Tancar sockets de flecks
+    pthread_mutex_lock(&fleck_mutex);
+    for (int i = 0; i < num_flecks; i++) {
+        close(flecks[i].base.socket_fd);
+        free(flecks[i].base.ip);
+        free(flecks[i].username);
+    }
+    free(flecks);
+    pthread_mutex_unlock(&fleck_mutex);
+
+    log_event("Tots els recursos s’han alliberat. Adeu.");
+    exit(0);
+}
+
+
+/**
  * Funció principal del programa.
  * Inicialitza la configuració, crea els threads i espera que acabin.
  * @param argc Nombre d'arguments de la línia de comandes.
@@ -717,11 +866,14 @@ int main(int argc, char *argv[]) {
     close(fd);
 
 
-    signal(SIGINT, exit);
+    signal(SIGINT, cleanup);
     pthread_create(&fleck_thread, NULL, listener_fleck, NULL);
     pthread_create(&worker_thread, NULL, listener_worker, NULL);
     
-    //pthread_create(&monitor_thread, NULL, monitoritzar_heartbeats, NULL);
+    pthread_t worker_monitor_thread;
+    pthread_t fleck_monitor_thread;
+    pthread_create(&worker_monitor_thread, NULL, monitoritzar_heartbeats_workers, NULL);
+    pthread_create(&fleck_monitor_thread, NULL, monitoritzar_heartbeats_flecks, NULL);
 
 
     pthread_join(fleck_thread, NULL);

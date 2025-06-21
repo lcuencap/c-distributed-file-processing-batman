@@ -17,7 +17,9 @@ pthread_t task_thread;
 pthread_t monitor_thread;
 ConfigWorker *workers = NULL;
 int num_workers = 0;
+int next_worker_id = 0;
 pthread_mutex_t worker_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 
 
 TaskManager task_manager;     // Gestor de tasques centralitzat
@@ -247,15 +249,6 @@ void afegir_worker(ConfigWorker new_worker) {
         return;
     }
 
-    // Prevenir duplicats (mateix socket_fd)
-    for (int i = 0; i < num_workers; i++) {
-        if (workers[i].base.socket_fd == new_worker.base.socket_fd) {
-            log_event("Intent d'afegir un worker duplicat. No es permet.");
-            pthread_mutex_unlock(&worker_mutex);
-            return;
-        }
-    }
-
     // 1. Redimensionar l’array abans de res
     ConfigWorker *temp = realloc(workers, (num_workers + 1) * sizeof(ConfigWorker));
     if (!temp) {
@@ -269,7 +262,7 @@ void afegir_worker(ConfigWorker new_worker) {
     workers[num_workers].ip_fleck = strdup(new_worker.ip_fleck);
     workers[num_workers].base.port = new_worker.base.port;
     workers[num_workers].port_fleck = new_worker.port_fleck;
-    workers[num_workers].worker_id = num_workers + 1;
+    workers[num_workers].worker_id = next_worker_id++;
     workers[num_workers].last_heartbeat = time(NULL);
 
     // 2. Enviar CON_OK
@@ -306,6 +299,7 @@ void afegir_worker(ConfigWorker new_worker) {
     log_event(log_msg);
 
     num_workers++;
+    next_worker_id++;
 
     pthread_mutex_unlock(&worker_mutex);
 }

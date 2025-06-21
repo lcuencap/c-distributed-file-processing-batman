@@ -19,6 +19,7 @@ pthread_t task_thread;
 ConfigWorker *workers = NULL;
 int num_workers = 0;
 int next_worker_id = 0;
+int next_fleck_id = 0;
 pthread_mutex_t worker_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 ConfigFleck *flecks = NULL;
@@ -151,15 +152,13 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
 
 /**
  * elimina un worker de la llista de workers.
- * @param socket_fd Socket del worker a eliminar.   
+ * @param id ID del worker a eliminar.   
  * @return Retorna 1 si s'ha eliminat correctament, 0 si no s'ha trobat el worker.
  */
 
-void eliminar_worker_per_socket(int socket_fd) {
-    pthread_mutex_lock(&worker_mutex);
-
+void eliminar_worker_per_id(int id) {
     for (int i = 0; i < num_workers; i++) {
-        if (workers[i].base.socket_fd == socket_fd) {
+        if (workers[i].worker_id == id) {
             int tipus_worker = workers[i].base.type;
             int era_principal = workers[i].is_primary_worker;
             free(workers[i].base.ip);
@@ -170,12 +169,13 @@ void eliminar_worker_per_socket(int socket_fd) {
             }
 
             num_workers--;
-            // Redimensionar l'array de workers 
-
-            workers = realloc(workers, num_workers * sizeof(ConfigWorker));
-            if (workers == NULL && num_workers > 0) {
+            // Redimensionar l'array de workers
+            ConfigWorker *tmp = realloc(workers, num_workers * sizeof(ConfigWorker));
+            if (tmp || num_workers == 0) {
+                workers = tmp;
+            } else {
                 log_event("Error real·locant memòria en eliminar worker.");
-            }
+            } 
 
             // Reassignar si cal
             if (era_principal) {
@@ -188,8 +188,6 @@ void eliminar_worker_per_socket(int socket_fd) {
             break;
         }
     }
-
-    pthread_mutex_unlock(&worker_mutex);
 }
 
 /**
@@ -212,10 +210,7 @@ void *monitoritzar_heartbeats_workers(void *arg) {
                          "Worker ID %d ha superat el timeout de %ds. Eliminant-lo.",
                          workers[i].worker_id, TIMEOUT);
                 log_event(log_msg);
-
-                int socket_fd = workers[i].base.socket_fd;
-                // Eliminar el worker de la llista
-                eliminar_worker_per_socket(socket_fd);
+                eliminar_worker_per_id(workers[i].worker_id);
                 // No fem i++ perquè l’array s’ha mogut
             } else {
                 i++;  // Només incrementem si no s’elimina
@@ -297,7 +292,7 @@ void afegir_worker(ConfigWorker new_worker) {
     workers[num_workers].ip_fleck = strdup(new_worker.ip_fleck);
     workers[num_workers].base.port = new_worker.base.port;
     workers[num_workers].port_fleck = new_worker.port_fleck;
-    workers[num_workers].worker_id = next_worker_id++;
+    workers[num_workers].worker_id = new_worker.worker_id;
     workers[num_workers].last_heartbeat = time(NULL);
 
     // 2. Enviar CON_OK
@@ -382,14 +377,14 @@ void *handle_worker(void *arg) {
             new_worker.ip_fleck = strdup(workerIP);
             new_worker.port_fleck = atoi(workerPortStr);
             new_worker.base.type = (strcasecmp(workerType, "TEXT") == 0) ? ENIGMA : HARLEY;
+            new_worker.worker_id = next_worker_id++;
 
             afegir_worker(new_worker);
 
 
-            // Mensaje tipo
             const char *tipus = (new_worker.base.type == ENIGMA) ? "ENIGMA" : "HARLEY";
 
-            // Mensaje registro
+            // registre
             int len2 = snprintf(NULL, 0, "Worker registrat: %s:%d (type: %s)\n", workerIP, new_worker.port_fleck, tipus) + 1;
             char *msg2 = malloc(len2);
             if (msg2) {
@@ -416,7 +411,17 @@ void *handle_worker(void *arg) {
                 free(msg4);
             }
             log_event("Trama 0x07 rebuda: worker sol·licita desconnexió.");
-            eliminar_worker_per_socket(worker_socket);
+            
+            pthread_mutex_lock(&worker_mutex);
+            for (int i = 0; i < num_workers; i++) {
+                if (workers[i].base.socket_fd == worker_socket) {
+                    eliminar_worker_per_id(workers[i].worker_id);
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&worker_mutex);
+
+
         } else if (trama.type == 0x12) {
             pthread_mutex_lock(&worker_mutex);
             for (int i = 0; i < num_workers; i++) {
@@ -465,6 +470,7 @@ void *listener_worker(void *arg) {
     address.sin_port = htons(config.worker_port);
 
     if (bind(server_fd_worker, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        write_message(STDERR_FILENO, "Error en el bind del socket del servidor de workers.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -480,7 +486,6 @@ void *listener_worker(void *arg) {
             pthread_t thread;
             pthread_create(&thread, NULL, handle_worker, socket_ptr);                    
             pthread_detach(thread);
-
         }
     }
     return NULL;
@@ -568,6 +573,7 @@ int addFleck(ConfigFleck *fleck, int socket, const char *data) {
     // Omplim el punter passat per paràmetre
     fleck->base.socket_fd = socket;
     fleck->base.type = FLECK;
+    fleck->fleck_id = next_fleck_id++;
     fleck->base.ip = strdup(ip);
     fleck->base.port = port;
     fleck->username = strdup(username);
@@ -772,7 +778,8 @@ void *listener_fleck(void *arg) {
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "Error al crear el socket del servidor de Flecks.\n");
+        cleanup(0);
     }
 
     address.sin_family = AF_INET;
@@ -780,11 +787,13 @@ void *listener_fleck(void *arg) {
     address.sin_port = htons(config.base.port);
 
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "Error en el bind del socket del servidor de Flecks.\n");
+        cleanup(0);
     }
 
     if (listen(server_fd, 10) < 0) {
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "Error en el listen del socket del servidor de Flecks.\n");
+        cleanup(0);
     }
 
     while (1) {
@@ -852,19 +861,41 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    write_message(STDOUT_FILENO, "Iniciant Gotham Mini...\n");
+
     int fd = open(argv[1], O_RDONLY);
     if (fd < 0 || parse_gotham_config(fd, &config) < 0) {
+        write_message(STDERR_FILENO, "Error en llegir el fitxer de configuració.\n");
         return 1;
     }
     close(fd);
 
 
     signal(SIGINT, cleanup);
-    pthread_create(&fleck_thread, NULL, listener_fleck, NULL);
-    pthread_create(&worker_thread, NULL, listener_worker, NULL);
+
+    write_message(STDOUT_FILENO, "Iniciem listener fleck.\n");
+    if (pthread_create(&fleck_thread, NULL, listener_fleck, NULL) == 0) {
+        write_message(STDOUT_FILENO, "[DEBUG] Thread listener_fleck creat correctament.\n");
+    } else {
+        write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut crear el thread listener_fleck.\n");
+    }
+
+    write_message(STDOUT_FILENO, "Iniciem listener worker.\n");
+    if (pthread_create(&worker_thread, NULL, listener_worker, NULL) == 0) {
+        write_message(STDOUT_FILENO, "[DEBUG] Thread listener_worker creat correctament.\n");
+    } else {
+        write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut crear el thread listener_worker.\n");
+    }
+
+
+
+
+    
+
     
     pthread_t worker_monitor_thread;
     pthread_t fleck_monitor_thread;
+    write_message(STDOUT_FILENO, "Iniciem monitorització de heartbeats.\n");
     pthread_create(&worker_monitor_thread, NULL, monitoritzar_heartbeats_workers, NULL);
     pthread_create(&fleck_monitor_thread, NULL, monitoritzar_heartbeats_flecks, NULL);
 

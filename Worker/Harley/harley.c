@@ -262,7 +262,6 @@ void *handle_task(void *arg) {
     write_message(STDOUT_FILENO, "[HARLEY] Iniciant recepció de fitxer...\n");
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
         write_message(STDERR_FILENO, "[ERROR] Error rebent el fitxer.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
@@ -279,10 +278,21 @@ void *handle_task(void *arg) {
     if (processar_media(file_name, factor) != NO_ERROR) {
         write_message(STDERR_FILENO, "[ERROR] Error processant el fitxer.\n");
 
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
+
+    if (!keep_running) {
+        write_message(STDERR_FILENO, "[HARLEY] Gotham ha caigut. No s’enviarà el fitxer al Fleck.\n");
+        remove_task(&task_manager, client_socket, &task_manager.mutex);
+        free_task_metadata(metadata, &shared_mem_mutex);  
+        close(client_socket);
+        pthread_mutex_lock(&threads_mutex);
+        active_threads--;
+        pthread_mutex_unlock(&threads_mutex);
+        return NULL;
+    }
+
 
     if (detectar_desconnexio_fleck(client_socket)) {
         write_message(STDERR_FILENO, "Detectada desconnexió Fleck.\n");
@@ -299,7 +309,7 @@ void *handle_task(void *arg) {
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
         write_message(STDERR_FILENO, "[HARLEY] Error obrint fitxer processat. Potser no s'ha creat?\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
     uint32_t distorted_file_size;
@@ -307,7 +317,7 @@ void *handle_task(void *arg) {
     if (size == (off_t)-1) {
         close(fd);
         write_message(STDERR_FILENO, "[HARLEY] Error al determinar la mida del fitxer processat.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;  // Error al determinar la mida del fitxer
     }
     distorted_file_size = (uint32_t)size;
@@ -320,7 +330,7 @@ void *handle_task(void *arg) {
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
         write_message(STDERR_FILENO, "Error enviant el fitxer processat al client.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;  // Error enviant el fitxer processat
     }
 
@@ -750,7 +760,7 @@ int main(int argc, char *argv[]) {
         pthread_mutex_unlock(&threads_mutex);
 
         if (threads == 0) break;
-        
+
         char dbg_msg[128];
         snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] Esperant que acabin %d distorsions...\n", threads);
         write_message(STDOUT_FILENO, dbg_msg);

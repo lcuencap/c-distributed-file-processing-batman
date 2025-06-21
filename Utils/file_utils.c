@@ -383,7 +383,7 @@ int parse_fleck_config(int fd, ConfigFleck *config) {
     // Assignar el tipus específic de configuració per a Fleck
     config->base.type = FLECK;
     config->base.socket_fd = -1; // Inicialitza el socket com a no connectat
-
+    config->fleck_id = -1; // Inicialitza l'ID del fleck com a no assignat
     return 0;
 }
 

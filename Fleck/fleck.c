@@ -501,6 +501,9 @@ void establir_connexio_gotham() {
 
     if (resposta.type == 0x01 && resposta.data_length == 0) {
         write_message(STDOUT_FILENO, "Connexió establerta amb Gotham.\n");
+        pthread_t heartbeat_thread;
+        pthread_create(&heartbeat_thread, NULL, heartbeat_gotham, NULL);
+        pthread_detach(heartbeat_thread);
     } else if (strcmp(resposta.data, "CON_KO") == 0) {
         write_message(STDOUT_FILENO, "Connexió rebutjada per Gotham.\n");
     }
@@ -1280,12 +1283,6 @@ int main(int argc, char *argv[]) {
     if (chdir(config.work_dir) != 0) {
         return 1;
     }
-
-    pthread_t heartbeat_thread;
-    pthread_create(&heartbeat_thread, NULL, heartbeat_gotham, NULL);
-    pthread_detach(heartbeat_thread);
-
-
     
     signal(SIGINT, parar_fleck);
 

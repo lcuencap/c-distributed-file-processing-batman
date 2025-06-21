@@ -103,6 +103,7 @@ typedef struct {
 // Estructura de configuració per Fleck
 typedef struct {
     ConfigBase base;              // Configuració base
+    int fleck_id;        // Identificador únic del worker
     char *username;              // nom d'usuari del Fleck
     char *work_dir;       // Directori de treball del Fleck
     time_t last_heartbeat;  // Timestamp de l'últim heartbeat rebut

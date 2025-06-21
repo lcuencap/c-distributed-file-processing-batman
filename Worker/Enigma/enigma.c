@@ -391,7 +391,20 @@ void listener_enigma_principal(ConfigWorker *config) {
 
 }
 
+/**
+ * @brief Envia un heartbeat a Gotham per indicar que el worker segueix actiu.
+ */
+void enviar_heartbeat() {
+    if (!keep_running) return;
 
+    Trama heartbeat_trama;
+    inicialitzar_trama(&heartbeat_trama, 0x12, "");
+
+    if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
+        keep_running = 0; 
+        return;            
+    }
+}
 
 void *listener_enigma_wrapper(void *arg) {
     write_message(STDOUT_FILENO, "[ENIGMA] Entrem al wrapper del thread.\n");
@@ -576,26 +589,12 @@ void gestionar_signal_interrupt(int sig) {
 }
 
 /**
- * @brief Envia un heartbeat a Gotham per indicar que el worker segueix actiu.
- */
-void enviar_heartbeat() {
-    if (!keep_running) return;
-
-    Trama heartbeat_trama;
-    inicialitzar_trama(&heartbeat_trama, 0x12, "");
-
-    if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
-        keep_running = 0; 
-        return;            
-    }
-}
-
-/**
  * @brief Thread que envia un heartbeat cada 5 segons per indicar que Harley està actiu.
  * @param arg Punter a l'argument (no s'utilitza).
  * @return Retorna NULL quan el thread finalitza.
  */
 void *heartbeat_thread(void *arg) {
+    (void)arg;  
     while (keep_running) {
         sleep(5);  // o cada 10 segons
         enviar_heartbeat();
@@ -689,8 +688,9 @@ int main(int argc, char *argv[]) {
         pthread_mutex_unlock(&threads_mutex);
 
         if (threads == 0) break;
-
-        write_message(STDOUT_FILENO, "[DEBUG] Esperant que finalitzin %d distorsions...\n", threads);
+        char dbg_msg[128];
+        snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] Esperant que acabin %d distorsions...\n", threads);
+        write_message(STDOUT_FILENO, dbg_msg);
         sleep(10);
     }
 

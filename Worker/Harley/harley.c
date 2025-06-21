@@ -656,6 +656,7 @@ void gestionar_signal_interrupt(int sig) {
  * @return Retorna NULL quan el thread finalitza.
  */
 void *heartbeat_thread(void *arg) {
+    (void)arg;  
     while (keep_running) {
         sleep(5);  // o cada 10 segons
         enviar_heartbeat();
@@ -749,8 +750,8 @@ int main(int argc, char *argv[]) {
         pthread_mutex_unlock(&threads_mutex);
 
         if (threads == 0) break;
-
-        write_message(STDOUT_FILENO, "[DEBUG] Esperant que finalitzin %d distorsions...\n", threads);
+        snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] Esperant que acabin %d distorsions...\n", threads);
+        write_message(STDOUT_FILENO, dbg_msg);
         sleep(10);
     }
 

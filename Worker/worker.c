@@ -534,13 +534,6 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     return 0;
 }
 
-/**
- * @brief Configura els heartbeats per a Harley.
- */
-void configurar_heartbeats(void (*handler)(int)) {
-    signal(SIGALRM, handler);
-    alarm(10);
-}
 
 /**
  * @brief Afegeix una nova connexió a la cua de connexions.

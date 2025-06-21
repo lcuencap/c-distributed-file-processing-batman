@@ -133,30 +133,17 @@ int processar_media(const char *file_name, int factor) {
 
 /**
  * @brief Envia un heartbeat a Gotham per indicar que el worker segueix actiu.
- * @param signo Senyal que ha activat la funció (no utilitzat).
  */
-void enviar_heartbeat(int signo) {
-    (void)signo;  // Evitar warnings per paràmetre no utilitzat
+void enviar_heartbeat() {
     if (!keep_running) return;
 
     Trama heartbeat_trama;
     inicialitzar_trama(&heartbeat_trama, 0x12, "");
 
     if (write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama)) != sizeof(heartbeat_trama)) {
-        write_message(STDERR_FILENO, "[ERROR] Error enviant heartbeat a Gotham.\n");
-        write_message(STDERR_FILENO, "Intentant reconnectar...\n");
-        if (reconnectar_gotham(&config, keep_running) == 0) {
-            write_message(STDOUT_FILENO, "Reconnexió amb Gotham exitosa.\n");
-            write(config.base.socket_fd, &heartbeat_trama, sizeof(heartbeat_trama));
-            alarm(10);
-        } else {
-            write_message(STDERR_FILENO, "[ERROR] Error en la reconnexió amb Gotham.\n");
-            keep_running = 0; 
-            return;            
-        }
-    } else {
-        alarm(10);  
-    } 
+        keep_running = 0; 
+        return;            
+    }
 }
 
 /**
@@ -566,7 +553,7 @@ void *gotham_listener_thread(void *arg) {
             case 0x12:
                 // Heartbeat de Gotham
                 write_message(STDOUT_FILENO, "Gotham ha demanat un heartbeat. Responent...\n");
-                enviar_heartbeat(0);
+                enviar_heartbeat();
                 break;
             default:
                 write_message(STDERR_FILENO, "Trama desconeguda de Gotham.\n");
@@ -664,6 +651,20 @@ void gestionar_signal_interrupt(int sig) {
 }
 
 /**
+ * @brief Thread que envia un heartbeat cada 5 segons per indicar que Harley està actiu.
+ * @param arg Punter a l'argument (no s'utilitza).
+ * @return Retorna NULL quan el thread finalitza.
+ */
+void *heartbeat_thread(void *arg) {
+    while (keep_running) {
+        sleep(5);  // o cada 10 segons
+        enviar_heartbeat();
+    }
+    return NULL;
+}
+
+
+/**
  * @brief Punt d'entrada principal.
  */
 int main(int argc, char *argv[]) {
@@ -733,7 +734,11 @@ int main(int argc, char *argv[]) {
 
 
     pthread_create(&gotham_thread, NULL, gotham_listener_thread, &config);
-    configurar_heartbeats(enviar_heartbeat);
+
+    pthread_t heartbeat_tid;
+    pthread_create(&heartbeat_tid, NULL, heartbeat_thread, NULL);
+    pthread_detach(heartbeat_tid);  
+
 
 
     if (config.is_primary_worker) {
@@ -741,9 +746,21 @@ int main(int argc, char *argv[]) {
     }
     pthread_join(gotham_thread, NULL);
 
-    if (config.work_dir) free(config.work_dir);
-    if (config.base.ip) free(config.base.ip);
-    if (config.ip_fleck) free(config.ip_fleck);
+    // Esperar que s'acabin totes les tasques abans de netejar
+    while (1) {
+        pthread_mutex_lock(&threads_mutex);
+        int threads = active_threads;
+        pthread_mutex_unlock(&threads_mutex);
+
+        if (threads == 0) break;
+
+        write_message(STDOUT_FILENO, "[DEBUG] Esperant que finalitzin %d distorsions...\n", threads);
+        sleep(10);
+    }
+
+    gestionar_signal_interrupt(SIGINT);
+
+
 
     write_message(STDOUT_FILENO, "Worker Harley finalitzat correctament.\n");
         

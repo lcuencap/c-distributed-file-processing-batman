@@ -237,7 +237,9 @@ void *handle_task(void *arg) {
     }
 
     if (request_trama.type != 0x03) {
-        write_message(STDERR_FILENO, "[ERROR] Trama rebutjada per tipus incorrecte\n");
+        char debug[124];
+        snprintf(debug, sizeof(debug), "[ERROR] Trama rebutjada per tipus incorrecte: %02X | Data: %s . \n", request_trama.type, request_trama.data);
+        write_message(STDERR_FILENO, debug);
         enviar_resposta_connexio_inicial(client_socket, 0);
         netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;

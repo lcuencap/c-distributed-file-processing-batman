@@ -32,15 +32,76 @@ ConfigFleck config;
 int connected_to_gotham = 0;  // Indica si Fleck està connectat a Gotham
 int sock_fd = -1;             // Descriptor del socket connectat a Gotham
 
+pthread_mutex_t fd_mutex = PTHREAD_MUTEX_INITIALIZER;
 int harley_fd = -1;
 int enigma_fd = -1;
-
-
 
 static DistorsioStatus *head = NULL;
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/**
+ * Envia un heartbeat a Gotham per mantenir la connexió viva.
+ * @param fd Descriptor del socket de Gotham.
+ */
+void *heartbeat_gotham(void *arg) {
+    (void)arg;
+    while (1) {
+        sleep(5);
+        
+        Trama hb;
+        inicialitzar_trama(&hb, 0x12, "");
 
+        if (write(sock_fd, &hb, sizeof(hb)) != sizeof(hb)) {
+            write_message(STDOUT_FILENO, "X Gotham is down X\n");
+            parar_fleck(0);
+        }
+    }
+    return NULL;
+}
+
+
+/**
+ * Extreu la IP i el port d'una cadena amb format "ip&port".
+ * @param input Cadena d'entrada amb el format "ip&port".
+ * @param ip_buffer Buffer de sortida on s'escriurà la IP (mínim 16 bytes).
+ * @param port Punter on s'emmagatzemarà el port.
+ * @return 0 si tot ha anat bé, -1 si hi ha un error de format.
+ */
+int parse_ip_port(const char *input, char *ip_buffer, int *port) {
+    if (!input || !ip_buffer || !port) return -1;
+
+    const char *sep = strchr(input, '&');
+    if (!sep) return -1;
+
+    size_t ip_len = sep - input;
+    if (ip_len >= 16) ip_len = 15;  // Evitar desbordament
+
+    strncpy(ip_buffer, input, ip_len);
+    ip_buffer[ip_len] = '\0';
+
+    *port = atoi(sep + 1);
+    if (*port <= 0) return -1;
+
+    return 0;
+}
+
+
+
+/**
+ * Indica si hi ha una distorsió activa per al tipus de media especificat.
+ * @param media_type Tipus de media ("media", "text").
+ * @return 1 si hi ha una distorsió activa, 0 si no.
+ */
+int existeix_distorsio_activa(const char *media_type) {
+    pthread_mutex_lock(&fd_mutex);
+    int activa = 0;
+    if (strcmp(media_type, "media") == 0)
+        activa = (harley_fd != -1);
+    else if (strcmp(media_type, "text") == 0)
+        activa = (enigma_fd != -1);
+    pthread_mutex_unlock(&fd_mutex);
+    return activa;
+}
 
 
 /**
@@ -138,19 +199,10 @@ int solicitar_nou_worker(const char *media_type, const char *file_name, char *wo
         write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte.\n");
         return -1;
     } else {
-        // Extraer IP y puerto del nuevo Worker manualmente
-        char *delimiter = strchr(resposta.data, '&');
-        if (!delimiter) {
-            write_message(STDOUT_FILENO, "Error: Resposta de Gotham invàlida.\n");
+        if (parse_ip_port(resposta.data, worker_ip, worker_port) < 0) {
+            write_message(STDOUT_FILENO, "Error: Format de resposta de Gotham incorrecte.\n");
             return -1;
         }
-
-        size_t ip_length = delimiter - resposta.data;
-        strncpy(worker_ip, resposta.data, ip_length);
-        worker_ip[ip_length] = '\0'; // Añadir terminador nulo
-
-        *worker_port = atoi(delimiter + 1); // Convertir el puerto a entero
-
         return 0;
     }
 }
@@ -229,7 +281,7 @@ int connectar_a_server(const char *ip, int port) {
  * Valida la connexió amb el worker esperant la trama de validació 0x03.
  * @return 0 si la connexió és vàlida, -1 si hi ha un error.
  */
-int esperar_resposta_connexio() {
+int esperar_resposta_connexio(int worker_fd) {
     Trama resposta;
 
     if (safe_read(worker_fd, &resposta, sizeof(Trama)) < 0) {
@@ -383,7 +435,7 @@ void enviar_trama_desconnexio_gotham() {
         close(sock_fd);
         sock_fd = -1;
         connected_to_gotham = 0;
-        write_message(STDOUT_FILENO, "Desconnectat correctament de Gotham.\n");
+        write_message(STDOUT_FILENO, "Disconnected from Gotham successfully.\n");
     }
 }
 
@@ -393,13 +445,12 @@ void enviar_trama_desconnexio_gotham() {
  * Envia una trama de desconnexió a Gotham i al worker (si escau) i allibera recursos.
  * @param sig Senyal rebuda (no utilitzada).
  */
-void ctrlc_handler(int sig) {
+void parar_fleck(int sig) {
     (void)sig;  
-    write_message(STDOUT_FILENO, "S'ha rebut Ctrl+C. Tancant Fleck...\n");
 
     if (connected_to_gotham) {
         enviar_trama_desconnexio_gotham();  
-    }
+    } 
 
     if (harley_fd >= 0) {
         enviar_trama_desconnexio_worker(harley_fd);
@@ -408,7 +459,18 @@ void ctrlc_handler(int sig) {
         enviar_trama_desconnexio_worker(enigma_fd);
     }
 
-    write_message(STDOUT_FILENO, "Fleck finalitzat correctament.\n");
+    pthread_mutex_lock(&status_mutex);
+    DistorsioStatus *curr = head;
+    while (curr) {
+        DistorsioStatus *to_free = curr;
+        curr = curr->next;
+        free(to_free);
+    }
+    head = NULL;
+    pthread_mutex_unlock(&status_mutex);
+    
+    write_message(STDOUT_FILENO, "Thanks for using Mr. J System, see you soon, chaos lover :)\n");
+
     exit(0);
 }
 
@@ -506,7 +568,7 @@ int validar_connexio_distort_worker(int worker_fd, const char *file_name, uint32
     }
 
 
-    if (esperar_resposta_connexio() != 0) {
+    if (esperar_resposta_connexio(worker_fd) != 0) {
         write_message(STDOUT_FILENO, "Error validant la connexió amb el Worker.\n");
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
@@ -549,20 +611,11 @@ int gestionar_caiguda_worker(int worker_fd, const char *fase, const char *media_
 
     int new_worker_fd = connectar_a_server(new_worker_ip, new_worker_port);
 
-    /*if (strcmp(media_type, "media") == 0) {
-        if (harley_fd >= 0) close(harley_fd);
-        harley_fd = connectar_a_server(worker_ip, worker_port);
-        if (harley_fd < 0) {
-            return ERROR_CONNECT_NEW;
-        }
-    } else {
-        if (enigma_fd >= 0) close(enigma_fd);
-        enigma_fd = connectar_a_server(worker_ip, worker_port);
-        if (enigma_fd < 0) {
-            return ERROR_CONNECT_NEW;
-        }
-    }*/
-   
+    if (new_worker_fd < 0) {
+        write_message(STDOUT_FILENO, "[FLECK] Error connectant al nou Worker.\n");
+        return ERROR_CONNECT_NEW;
+    }
+
 
     if (validar_connexio_distort_worker(new_worker_fd, file_name, file_size, md5sum, factor) < 0) {
         write_message(STDOUT_FILENO, "[FLECK] Error validant connexió amb el nou Worker.\n");
@@ -591,7 +644,7 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
     off_t total_enviat = 0;
     
     
-    if (validar_connexio_distort_worker(file_name, file_size, md5sum, factor) != 0) {
+    if (validar_connexio_distort_worker(worker_fd, file_name, file_size, md5sum, factor) != 0) {
         write_message(STDOUT_FILENO, "[FLECK] Error establint connexió amb el Worker.\n");
         return -1;
     }
@@ -599,7 +652,7 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
 
     int file_fd = open(file_name, O_RDONLY);
     if (file_fd < 0) {
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
     write_message(STDOUT_FILENO, "[FLECK] Fitxer obert correctament per enviar al Worker.\n");
@@ -632,7 +685,7 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
             write_message(STDOUT_FILENO, "[FLECK] Error enviant la trama al Worker.\n");
             if (errno == ECONNRESET || errno == EPIPE) {
                 write_message(STDOUT_FILENO, "[FLECK] Worker desconnectat inesperadament.\n");
-                if (gestionar_caiguda_worker("ENVIANT", media_type, file_name, file_fd, file_size, md5sum, factor) < 0) {
+                if (gestionar_caiguda_worker(worker_fd, "ENVIANT", media_type, file_name, file_fd, file_size, md5sum, factor) < 0) {
                     write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                     return ERROR_WORKER_DOWN;
                 } else {
@@ -643,7 +696,7 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
             } else {
                 write_message(STDOUT_FILENO, "[FLECK] Error desconegut, enviant la trama de desconnexio al Worker.\n");
                 close(file_fd);
-                enviar_trama_desconnexio_worker();
+                enviar_trama_desconnexio_worker(worker_fd);
                 return -1;
             }
         }
@@ -663,24 +716,24 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
     Trama resposta_md5;
     if (safe_read(worker_fd, &resposta_md5, sizeof(Trama)) < 0) {
         write_message(STDOUT_FILENO, "[FLECK] Error llegint confirmació del Worker.\n");
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
 
     if (!validar_trama(&resposta_md5)) {
         write_message(STDOUT_FILENO, "[FLECK] Trama de confirmació no vàlida.\n");
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
 
     if (resposta_md5.type != 0x06) {
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     } 
 
     if (resposta_md5.data_length != 8 || strncmp(resposta_md5.data, "CHECK_OK", 8) != 0) {
         write_message(STDOUT_FILENO, "[FLECK] El Worker ha indicat un error de recepció del fitxer.\n");
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
     
@@ -733,7 +786,7 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
                 }
                 continue;  // Tornar a esperar.
             } else {
-                if (gestionar_caiguda_worker("ESPERANT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
+                if (gestionar_caiguda_worker(worker_fd, "ESPERANT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
                     write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                     return ERROR_WORKER_DOWN;
                 } else {
@@ -752,7 +805,7 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
         
 
         if (bytes_read == 0 || errno == ECONNRESET || errno == EPIPE) {
-            if (gestionar_caiguda_worker("REBENT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
+            if (gestionar_caiguda_worker(worker_fd, "REBENT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
                 write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                 return ERROR_WORKER_DOWN;
             } else {
@@ -789,7 +842,7 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
     // 2. Obrir fitxer de sortida
     int output_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (output_fd < 0) {
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return ERROR_OUTPUT_FILE;
     }
     update_progress_status(file_name, REBENT, file_size, file_size_rebuda, 0, 0);
@@ -805,7 +858,7 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
             if (errno == ECONNRESET || errno == EPIPE) {
-                if (gestionar_caiguda_worker("REBENT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
+                if (gestionar_caiguda_worker(worker_fd, "REBENT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
                     write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                     close(output_fd);
                     return ERROR_WORKER_DOWN;
@@ -816,7 +869,7 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
                 }
             }
 
-            enviar_trama_desconnexio_worker();
+            enviar_trama_desconnexio_worker(worker_fd);
             close(output_fd);
             return ERROR_READ;
         }
@@ -824,7 +877,7 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
         
 
         if (write(output_fd, trama.data, trama.data_length) != trama.data_length) {
-            enviar_trama_desconnexio_worker();
+            enviar_trama_desconnexio_worker(worker_fd);
             close(output_fd);
             return ERROR_READ;
         }
@@ -893,13 +946,18 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
 
     if (worker_fd < 0) {
         write_message(STDOUT_FILENO, "Error connectant amb el worker.\n");
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
 
+    char buffer[128];
+    snprintf(buffer, sizeof(buffer), "Worker connectat de tipus *%s* .\n", media_type);
+    write_message(STDOUT_FILENO, buffer);
+
+
     if (strcmp(media_type, "media") == 0) {
         harley_fd = worker_fd;  // Assignar el descriptor de socket al worker de media
-    } else if (strcmp(media_type, "text") != 0) {
+    } else if (strcmp(media_type, "text") == 0) {
         enigma_fd = worker_fd;  // Assignar el descriptor de socket al worker de text
     } else {
         write_message(STDOUT_FILENO, "Error: Tipus de media no vàlid. Ha de ser 'media' o 'text'.\n");
@@ -913,7 +971,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     char md5sum[33]; 
     if (calcular_md5(file_name, md5sum, &file_size) < 0) {
         write_message(STDOUT_FILENO, "Error calculant MD5SUM.\n");
-        enviar_trama_desconnexio_worker();
+        enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
     write_message(STDOUT_FILENO, "Distorsion started!\n");
@@ -950,8 +1008,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
  * @param factor Factor de distorsió.
  * @return 0 si la petició s'envia correctament, -1 si hi ha un error.
  */
-int enviar_peticio_distorsio(const char *media_type, const char *file, int factor) {
-    int 
+int enviar_peticio_distorsio(const char *media_type, const char *file, int factor) { 
     if (!media_type || !file) {
         write_message(STDOUT_FILENO, "Error: Tipus de media o nom de fitxer no vàlid.\n");
         return -1;
@@ -989,17 +1046,25 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
         } else {
             char worker_ip[16];
             int worker_port;
-            sscanf(resposta.data, "%15[^&]&%d", worker_ip, &worker_port);
+
+            parse_ip_port(resposta.data, worker_ip, &worker_port);
 
             DistorsioArgs *args = malloc(sizeof(DistorsioArgs));
             if (!args) {
                 write_message(STDOUT_FILENO, "Error assignant memòria per gestionar_distorsio_worker.\n");
                 return -1;
             }
+
             strncpy(args->worker_ip, worker_ip, sizeof(args->worker_ip));
             args->worker_port = worker_port;
             strncpy(args->file_name, file, sizeof(args->file_name));
             args->factor = factor;
+
+            if (existeix_distorsio_activa(media_type)) {
+                write_message(STDOUT_FILENO, "Ja hi ha una distorsió activa d’aquest tipus.\n");
+                return -1;
+            }
+
             if (*file) {
                 register_new_file(file, media_type); 
             }
@@ -1169,17 +1234,7 @@ void gestionar_comandes_fleck() {
                 }
             }
         } else if (strcmp(command_upper, "LOGOUT") == 0) {
-            if (connected_to_gotham) {
-                Trama trama;
-                inicialitzar_trama(&trama, 0x07, config.username);
-                write(sock_fd, &trama, sizeof(trama));
-                close(sock_fd);
-                sock_fd = -1;
-                connected_to_gotham = 0;
-                write_message(STDOUT_FILENO, "Thanks for using Mr. J System, see you soon, chaos lover :)\n");
-            } else {
-                write_message(STDOUT_FILENO, "Not connected to Mr. J System. Exiting...\n");
-            }
+            parar_fleck(0);
         } else if (strcmp(command_upper, "CHECK STATUS") == 0) {
             print_all_progress();
         } else if (strcmp(command_upper, "CLEAR ALL") == 0) {
@@ -1224,10 +1279,14 @@ int main(int argc, char *argv[]) {
     if (chdir(config.work_dir) != 0) {
         return 1;
     }
-    
+
+    pthread_t heartbeat_thread;
+    pthread_create(&heartbeat_thread, NULL, heartbeat_gotham, NULL);
+    pthread_detach(heartbeat_thread);
+
 
     
-    signal(SIGINT, ctrlc_handler);
+    signal(SIGINT, parar_fleck);
 
     connected_to_gotham = 0;
     sock_fd = -1;  

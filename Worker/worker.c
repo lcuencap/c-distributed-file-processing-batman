@@ -554,15 +554,31 @@ void configurar_heartbeats(void (*handler)(int)) {
  */
 void enqueue_connection(int client_socket, int* connection_queue, int* queue_rear, int* queue_count,
     pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full) {
+    
+    if (client_socket < 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'hauria d'enqueuar un socket < 0\n");
+        return;
+    }
+    
     pthread_mutex_lock(queue_mutex);
     while (*queue_count == MAX_QUEUE_SIZE)
     pthread_cond_wait(queue_not_full, queue_mutex);
-
-    write_message(STDOUT_FILENO, "[DEBUG] Enqueuing new connection.\n");
+    
+    char dbg_msg[256];
+    snprintf(dbg_msg, sizeof(dbg_msg), 
+        "[DEBUG] Enqueuing socket %d | queue_rear=%d | queue_count(before)=%d\n", 
+        client_socket, *queue_rear, *queue_count);
+    write_message(STDOUT_FILENO, dbg_msg);
 
     connection_queue[*queue_rear] = client_socket;
     *queue_rear = (*queue_rear + 1) % MAX_QUEUE_SIZE;
     (*queue_count)++;
+
+    snprintf(dbg_msg, sizeof(dbg_msg), 
+        "[DEBUG] queue_count(after)=%d | next queue_rear=%d\n", 
+        *queue_count, *queue_rear);
+    write_message(STDOUT_FILENO, dbg_msg);
+
 
     pthread_cond_signal(queue_not_empty);
     pthread_mutex_unlock(queue_mutex);

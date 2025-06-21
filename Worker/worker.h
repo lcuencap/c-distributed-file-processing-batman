@@ -40,6 +40,7 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
                                   int shared_mem_fd, pthread_mutex_t *mutex);
 void free_task_metadata(TaskMetadata *metadata, pthread_mutex_t *mutex);
 void mostrar_estat_fitxer(const char *nom);
+void netejar_connexio_per_error(int client_socket, TaskMetadata *metadata, pthread_mutex_t *shared_mem_mutex, int *active_threads, pthread_mutex_t *threads_mutex);
 
 
 // Funcions de gestió de memòria compartida

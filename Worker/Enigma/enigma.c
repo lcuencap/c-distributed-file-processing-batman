@@ -672,6 +672,7 @@ void gestionar_signal_interrupt(int sig) {
         pthread_cancel(enigma_thread);
         pthread_join(enigma_thread, NULL);
     }
+    
 
     // Alliberar memòria de configuració
     write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
@@ -747,6 +748,7 @@ int main(int argc, char *argv[]) {
     inicialitzar_connexio_gotham(&config);
     int flags = fcntl(config.base.socket_fd, F_GETFL, 0);
     fcntl(config.base.socket_fd, F_SETFL, flags | O_NONBLOCK);
+    
     pthread_t thread_pool[THREAD_POOL_SIZE];
     for (int i = 0; i < THREAD_POOL_SIZE; i++) {
         pthread_create(&thread_pool[i], NULL, worker_loop, NULL);

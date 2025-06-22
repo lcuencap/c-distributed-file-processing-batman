@@ -280,7 +280,7 @@ void *handle_task(void *arg) {
     }
 
     if (!keep_running) {
-        write_message(STDERR_FILENO, "[HARLEY] Gotham ha caigut. No s’enviarà el fitxer al Fleck.\n");
+        write_message(STDERR_FILENO, "[HARLEY] Gotham ha caigut.\n");
         free_task_metadata(metadata, &shared_mem_mutex);  
         close(client_socket);
         pthread_mutex_lock(&threads_mutex);
@@ -292,7 +292,6 @@ void *handle_task(void *arg) {
 
     if (detectar_desconnexio_fleck(client_socket)) {
         write_message(STDERR_FILENO, "Detectada desconnexió Fleck.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket,
                                   shared_mem, current_mem_size, &shared_mem_mutex);
         return NULL;

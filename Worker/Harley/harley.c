@@ -1,5 +1,4 @@
 #include "../worker.h"
-#include "../../Utils/task_manager.h"
 #include "../../Utils/so_compression.h"
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +13,6 @@
 
 
 // Variables globals
-static TaskManager task_manager;
 static ConfigWorker config;
 static int shared_mem_fd = -1;
 static void *shared_mem = NULL;
@@ -254,7 +252,6 @@ void *handle_task(void *arg) {
         metadata->bytes_sent = 0;
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
-        add_task_to_manager(&task_manager, client_socket, file_name, &config);
     } else {
         write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
     }
@@ -284,7 +281,6 @@ void *handle_task(void *arg) {
 
     if (!keep_running) {
         write_message(STDERR_FILENO, "[HARLEY] Gotham ha caigut. No s’enviarà el fitxer al Fleck.\n");
-        remove_task(&task_manager, client_socket, &task_manager.mutex);
         free_task_metadata(metadata, &shared_mem_mutex);  
         close(client_socket);
         pthread_mutex_lock(&threads_mutex);
@@ -297,7 +293,7 @@ void *handle_task(void *arg) {
     if (detectar_desconnexio_fleck(client_socket)) {
         write_message(STDERR_FILENO, "Detectada desconnexió Fleck.\n");
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
-        finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket, &task_manager,
+        finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket,
                                   shared_mem, current_mem_size, &shared_mem_mutex);
         return NULL;
     }
@@ -335,7 +331,6 @@ void *handle_task(void *arg) {
     }
 
 
-    remove_task(&task_manager, client_socket, &task_manager.mutex);
     free_task_metadata(metadata, &shared_mem_mutex);  
 
     close(client_socket);

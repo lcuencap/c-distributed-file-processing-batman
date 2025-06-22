@@ -370,18 +370,13 @@ void parse_trama_data(const char *data, uint32_t *file_size, char *checksum) {
  * @param metadata Punter a la metadada de la tasca.
  * @param file_name Nom del fitxer associat a la tasca.
  * @param socket Socket del Fleck.
- * @param task_manager Punter al gestor de tasques.
  * @param shared_mem Punter a la memòria compartida.
  * @param current_mem_size Mida actual de la memòria compartida.
  * @param shared_mem_mutex Mutex per a protegir l'accés a la memòria compartida.
  */
 void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket,
-                                       TaskManager *task_manager, void *shared_mem,
-                                       size_t current_mem_size, pthread_mutex_t *shared_mem_mutex){
+                                    void *shared_mem, size_t current_mem_size, pthread_mutex_t *shared_mem_mutex){
     gestionar_desconnexio_fleck(file_name, socket, shared_mem, current_mem_size, shared_mem_mutex);
-    remove_task(task_manager, socket, &task_manager->mutex);
-
-
     free_task_metadata(metadata, shared_mem_mutex);
 }
 
@@ -673,25 +668,6 @@ int dequeue_connection(int* connection_queue, int* queue_front, int* queue_count
     return client_socket;
 }
 
-
-/**
- * @brief Afegeix una tasca al gestor de tasques.
- * @param manager Punter al gestor de tasques.
- * @param client_socket Socket del client que ha enviat la tasca.
- * @param file_name Nom del fitxer associat a la tasca.
- * @param config Configuració del worker.
- */
-void add_task_to_manager(TaskManager *manager, int client_socket, const char *file_name, ConfigWorker *config) {
-    Task new_task = {
-        .task_id = client_socket, 
-        .client_socket = client_socket,
-        .worker_socket = config->base.socket_fd,
-        .status = TASK_PENDING,
-    };
-    strncpy(new_task.file_name, file_name, sizeof(new_task.file_name));
-    addTask(manager, new_task);
-}
-
 void marcar_tasca_com_fallida(TaskMetadata *metadata) {
     metadata->status = TASK_FAILED;
 }
@@ -926,64 +902,6 @@ void assegurar_working_directory(char *work_dir, int harley) {
     }
 
     free(full_path);
-}
-
-void mark_incomplete_tasks(TaskManager *manager, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex) {
-    pthread_mutex_lock(&manager->mutex);  
-
-    Task *current = manager->head;
-    while (current) {
-        if (current->status == TASK_IN_PROGRESS) {
-            TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, shared_mem_size, current->file_name, shared_mem_mutex);
-            if (metadata) {
-                pthread_mutex_lock(shared_mem_mutex);
-                metadata->status = TASK_INTERRUPTED;
-                pthread_mutex_unlock(shared_mem_mutex);  
-            }
-        }
-        current = current->next;
-    }
-
-    pthread_mutex_unlock(&manager->mutex);  
-}
-
-
-Task *get_next_task(TaskManager *manager) {
-    pthread_mutex_lock(&manager->mutex);
-
-    Task *current = manager->head;
-    while (current) {
-        if (current->status == TASK_PENDING) {
-            current->status = TASK_IN_PROGRESS;
-            pthread_mutex_unlock(&manager->mutex);
-            return current;
-        }
-        current = current->next;
-    }
-
-    pthread_mutex_unlock(&manager->mutex);
-    return NULL;
-}
-
-void remove_task(TaskManager *manager, int client_socket, pthread_mutex_t *mutex) {
-    pthread_mutex_lock(mutex);
-
-    Task *current = manager->head, *prev = NULL;
-    while (current) {
-        if (current->client_socket == client_socket) {
-            if (prev) {
-                prev->next = current->next;
-            } else {
-                manager->head = current->next;
-            }
-            free(current);
-            break;
-        }
-        prev = current;
-        current = current->next;
-    }
-
-    pthread_mutex_unlock(mutex);
 }
 
 int reconnectar_gotham(ConfigWorker *config, int keep_running) {

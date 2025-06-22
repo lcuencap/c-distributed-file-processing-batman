@@ -15,7 +15,6 @@ Aquest projecte està dissenyat per modularitzar i executar diverses funcionalit
 * Gotham/: Conté el servidor principal que gestiona les connexions amb Fleck i delega tasques als workers. Aquesta carpeta inclou:
 
   * `gotham.c`: Codi font del servidor Gotham.
-  * `gotham_mini.c`: Versió simplificada i funcional de Gotham recomanada per les proves.
   * `config.dat`: Fitxer de configuració per a Gotham.
 
 * Worker/: Carpeta principal per als workers **Enigma** i **Harley**.

@@ -472,7 +472,7 @@ void *gotham_listener_thread(void *arg) {
             default:
                 write_message(STDERR_FILENO, "Unknown packet type.\n");
                 Trama error;
-                inicialitzar_trama(&error, "0x09", "");
+                inicialitzar_trama(&error, 0x09, "");
                 if (write(config->base.socket_fd, &error, sizeof(error)) != sizeof(error)) {
                     write_message(STDERR_FILENO, "[ERROR] Could not send error packet to Gotham server.\n");
                 }

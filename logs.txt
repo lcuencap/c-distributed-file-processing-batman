@@ -44,3 +44,13 @@
 [2025-06-23 13:17:21] S’ha rebut SIGINT. Tancant Gotham netament.
 [2025-06-23 13:17:48] Logger Arkham inicialitzat correctament.
 [2025-06-23 13:17:49] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-23 17:14:10] Logger Arkham inicialitzat correctament.
+[2025-06-23 17:14:14] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-23 17:14:20] Logger Arkham inicialitzat correctament.
+[2025-06-23 17:14:24] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-23 17:14:24] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-23 17:14:31] Worker ID: 2, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 0
+[2025-06-23 17:14:34] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-23 17:14:34] Worker ID: 4, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 1
+[2025-06-23 17:14:41] Worker ID: 6, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 0
+[2025-06-23 17:14:46] Fleck connectat: Laura (Socket:10)

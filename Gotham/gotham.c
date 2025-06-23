@@ -769,6 +769,46 @@ void *listener_fleck(void *arg) {
                     }
                 }
                 pthread_mutex_unlock(&fleck_mutex);
+            } else if (trama.type == 0x10 || trama.type == 0x11) {
+                char trama_copia[256];
+                strncpy(trama_copia, trama.data, sizeof(trama_copia));
+                trama_copia[sizeof(trama_copia) - 1] = '\0';
+
+                char *mediaType = strtok(trama_copia, "&");
+                char *fileName = strtok(NULL, "&");
+
+                Trama resposta;
+
+                if (!mediaType || !fileName) {
+                    inicialitzar_trama(&resposta, trama.type, "MEDIA_KO");
+                    write(client_fd, &resposta, sizeof(resposta));
+                    continue;
+                }
+
+                int tipus_worker;
+                if (!validar_tipus_fitxer(mediaType, fileName, &tipus_worker)) {
+                    inicialitzar_trama(&resposta, trama.type, "MEDIA_KO");
+                    write(client_fd, &resposta, sizeof(resposta));
+                    continue;
+                }
+
+                pthread_mutex_lock(&worker_mutex);
+                ConfigWorker *worker = obtenir_principal(tipus_worker);
+
+                if (!worker && trama.type == 0x11) {
+                    worker = seleccionar_nou_principal(tipus_worker);
+                }
+
+                if (worker) {
+                    char resposta_data[64];
+                    construir_data_worker(worker, resposta_data);
+                    inicialitzar_trama(&resposta, trama.type, resposta_data);
+                } else {
+                    inicialitzar_trama(&resposta, trama.type, "DISTORT_KO");
+                }
+                pthread_mutex_unlock(&worker_mutex);
+
+                write(client_fd, &resposta, sizeof(resposta));
             } else {
                 Trama resposta_error;
                 inicialitzar_trama(&resposta_error, 0x09, "");

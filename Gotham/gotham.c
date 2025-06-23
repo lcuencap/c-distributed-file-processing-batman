@@ -372,123 +372,6 @@ void afegir_worker(ConfigWorker new_worker) {
     pthread_mutex_unlock(&worker_mutex);
 }
 
-/**
- * Thread que gestiona les connexions dels workers.
- * Accepta connexions entrants i crea un nou thread per cada worker.
- */
-void *handle_worker(void *arg) {
-    int worker_socket = *(int *)arg;
-    free(arg);
-
-    Trama trama;
-
-    while (read(worker_socket, &trama, sizeof(trama)) == sizeof(trama)) {
-        if (!validar_trama(&trama)) {
-            respondre_trama_erronia(worker_socket, "Worker");
-            continue;
-        }
-
-        if (trama.type == 0x02) {
-            char *workerType = strtok(trama.data, "&");
-            char *workerIP = strtok(NULL, "&");
-            char *workerPortStr = strtok(NULL, "&");
-
-            if (!workerType || strlen(workerType) == 0 ||
-                !workerIP || strlen(workerIP) == 0 ||
-                !workerPortStr || strlen(workerPortStr) == 0 ||
-                atoi(workerPortStr) <= 0) {
-                
-                write_message(STDOUT_FILENO, "Trama de worker mal formada o amb camps buits.\n");
-
-                Trama resposta;
-                inicialitzar_trama(&resposta, 0x02, "CON_KO");
-                write(worker_socket, &resposta, sizeof(resposta));
-
-                close(worker_socket);
-                continue;
-            }
-
-            ConfigWorker new_worker;
-            new_worker.base.socket_fd = worker_socket;
-            new_worker.base.ip = strdup(config.base.ip);  // IP de Gotham
-            new_worker.base.port = config.base.port;
-            new_worker.ip_fleck = strdup(workerIP);
-            new_worker.port_fleck = atoi(workerPortStr);
-            new_worker.base.type = (strcasecmp(workerType, "TEXT") == 0) ? ENIGMA : HARLEY;
-            new_worker.worker_id = next_worker_id++;
-
-            afegir_worker(new_worker);
-
-
-            const char *tipus = (new_worker.base.type == ENIGMA) ? "ENIGMA" : "HARLEY";
-
-            // registre
-            int len2 = snprintf(NULL, 0, "Worker registrat: %s:%d (type: %s)\n", workerIP, new_worker.port_fleck, tipus) + 1;
-            char *msg2 = malloc(len2);
-            if (msg2) {
-                snprintf(msg2, len2, "Worker registrat: %s:%d (%s)\n", workerIP, new_worker.port_fleck, workerType);
-                log_event(msg2);
-                free(msg2);
-            }
-        } else if (trama.type == 0x07) {
-            int len3 = snprintf(NULL, 0, "Worker %s desconnectat\n", trama.data) + 1;
-            char *msg3 = malloc(len3);
-            if (msg3) {
-                snprintf(msg3, len3, "Worker %s desconnectat\n", trama.data);
-                write_message(STDOUT_FILENO, msg3);
-                free(msg3);
-            }
-
-            printf("Worker %s desconnectat\n", trama.data);
-
-            int len4 = snprintf(NULL, 0, "Desconnectant worker %d\n", trama.type) + 1;
-            char *msg4 = malloc(len4);
-            if (msg4) {
-                snprintf(msg4, len4, "Desconnectant worker %d\n", trama.type);
-                write_message(STDOUT_FILENO, msg4);
-                free(msg4);
-            }
-            log_event("Trama 0x07 rebuda: worker sol·licita desconnexió.");
-            
-            pthread_mutex_lock(&worker_mutex);
-            for (int i = 0; i < num_workers; i++) {
-                if (workers[i].base.socket_fd == worker_socket) {
-                    eliminar_worker_per_id(workers[i].worker_id);
-                    break;
-                }
-            }
-            pthread_mutex_unlock(&worker_mutex);
-
-
-        } else if (trama.type == 0x12) {
-            pthread_mutex_lock(&worker_mutex);
-            for (int i = 0; i < num_workers; i++) {
-                if (workers[i].base.socket_fd == worker_socket) {
-                    workers[i].last_heartbeat = time(NULL);
-                    break;
-                }
-            }
-            pthread_mutex_unlock(&worker_mutex);
-        } else {
-            int len6 = snprintf(NULL, 0, "Trama desconeguda rebuda del worker: 0x%02X\n", trama.type) + 1;
-            char *msg6 = malloc(len6);
-            if (msg6) {
-                snprintf(msg6, len6, "Trama desconeguda rebuda del worker: 0x%02X\n", trama.type);
-                write_message(STDOUT_FILENO, msg6);
-                free(msg6);
-            }
-            // Enviem trama 0x09 per notificar error desconegut
-            Trama error_trama;
-            memset(&error_trama, 0, sizeof(Trama));
-            error_trama.type = 0x09;
-            error_trama.data_length = 0;
-            write(worker_socket, &error_trama, sizeof(error_trama));
-        }
-    }
-
-    close(worker_socket);
-    return NULL;
-}
 
 /**
  * Thread que escolta les connexions dels workers.
@@ -496,36 +379,136 @@ void *handle_worker(void *arg) {
  */
 void *listener_worker(void *arg) {
     (void)arg;
-    struct sockaddr_in address;
-    socklen_t addrlen = sizeof(address);
-
-    int server_fd_worker = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd_worker < 0) {
-        exit(EXIT_FAILURE);
-    }
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = inet_addr(config.worker_ip);
-    address.sin_port = htons(config.worker_port);
-
-    if (bind(server_fd_worker, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        write_message(STDERR_FILENO, "Error en el bind del socket del servidor de workers.\n");
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        perror("socket");
         exit(EXIT_FAILURE);
     }
 
-    if (listen(server_fd_worker, 10) < 0) {
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = inet_addr(config.worker_ip),
+        .sin_port = htons(config.worker_port)
+    };
+
+    if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("bind");
         exit(EXIT_FAILURE);
     }
+
+    if (listen(server_fd, 10) < 0) {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+
+    struct pollfd poll_fds[MAX_WORKERS + 1];
+    int sockets[MAX_WORKERS];
+    memset(sockets, 0, sizeof(sockets));
+    
+    poll_fds[0].fd = server_fd;
+    poll_fds[0].events = POLLIN;
+    int nfds = 1;
 
     while (1) {
-        int worker_socket = accept(server_fd_worker, (struct sockaddr *)&address, &addrlen);
-        if (worker_socket >= 0) {
-            int *socket_ptr = malloc(sizeof(int));
-            *socket_ptr = worker_socket;
-            pthread_t thread;
-            pthread_create(&thread, NULL, handle_worker, socket_ptr);                    
-            pthread_detach(thread);
+        int ready = poll(poll_fds, nfds, 5000);
+        if (ready < 0) {
+            perror("poll");
+            continue;
+        }
+
+        for (int i = 0; i < nfds && ready > 0; i++) {
+            if (!(poll_fds[i].revents & POLLIN)) continue;
+            ready--;
+
+            if (poll_fds[i].fd == server_fd) {
+                int client_fd = accept(server_fd, NULL, NULL);
+                if (client_fd >= 0 && nfds < MAX_WORKERS + 1) {
+                    poll_fds[nfds].fd = client_fd;
+                    poll_fds[nfds].events = POLLIN;
+                    sockets[nfds - 1] = client_fd;
+                    nfds++;
+                }
+                continue;
+            }
+
+            int client_fd = poll_fds[i].fd;
+            Trama trama;
+            ssize_t len = read(client_fd, &trama, sizeof(trama));
+            if (len != sizeof(trama)) {
+                close(client_fd);
+                poll_fds[i] = poll_fds[nfds - 1];
+                sockets[i - 1] = sockets[nfds - 2];
+                nfds--;
+                i--;
+                continue;
+            }
+
+            if (!validar_trama(&trama)) {
+                respondre_trama_erronia(client_fd, "Worker");
+                continue;
+            }
+
+            if (trama.type == 0x02) {
+                char *workerType = strtok(trama.data, "&");
+                char *workerIP = strtok(NULL, "&");
+                char *workerPortStr = strtok(NULL, "&");
+
+                if (!workerType || !workerIP || !workerPortStr || atoi(workerPortStr) <= 0) {
+                    Trama resposta;
+                    inicialitzar_trama(&resposta, 0x02, "CON_KO");
+                    write(client_fd, &resposta, sizeof(resposta));
+                    close(client_fd);
+                    poll_fds[i] = poll_fds[nfds - 1];
+                    sockets[i - 1] = sockets[nfds - 2];
+                    nfds--;
+                    i--;
+                    continue;
+                }
+
+                ConfigWorker new_worker = {
+                    .base.socket_fd = client_fd,
+                    .base.ip = strdup(config.base.ip),
+                    .base.port = config.base.port,
+                    .ip_fleck = strdup(workerIP),
+                    .port_fleck = atoi(workerPortStr),
+                    .base.type = (strcasecmp(workerType, "TEXT") == 0) ? ENIGMA : HARLEY,
+                    .worker_id = next_worker_id++,
+                    .last_heartbeat = time(NULL)
+                };
+
+                afegir_worker(new_worker);
+            } else if (trama.type == 0x07) {
+                pthread_mutex_lock(&worker_mutex);
+                for (int w = 0; w < num_workers; w++) {
+                    if (workers[w].base.socket_fd == client_fd) {
+                        eliminar_worker_per_id(workers[w].worker_id);
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&worker_mutex);
+
+                close(client_fd);
+                poll_fds[i] = poll_fds[nfds - 1];
+                sockets[i - 1] = sockets[nfds - 2];
+                nfds--;
+                i--;
+            } else if (trama.type == 0x12) {
+                pthread_mutex_lock(&worker_mutex);
+                for (int w = 0; w < num_workers; w++) {
+                    if (workers[w].base.socket_fd == client_fd) {
+                        workers[w].last_heartbeat = time(NULL);
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&worker_mutex);
+            } else {
+                Trama error_trama;
+                inicialitzar_trama(&error_trama, 0x09, "");
+                write(client_fd, &error_trama, sizeof(error_trama));
+            }
         }
     }
+
     return NULL;
 }
 

@@ -38,3 +38,9 @@
 [2025-06-23 13:15:33] Fleck ha sol·licitat la desconnexió.
 [2025-06-23 13:15:36] S’ha rebut SIGINT. Tancant Gotham netament.
 [2025-06-23 13:15:48] Logger Arkham inicialitzat correctament.
+[2025-06-23 13:17:03] Logger Arkham inicialitzat correctament.
+[2025-06-23 13:17:06] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-23 13:17:18] Logger Arkham inicialitzat correctament.
+[2025-06-23 13:17:21] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-23 13:17:48] Logger Arkham inicialitzat correctament.
+[2025-06-23 13:17:49] S’ha rebut SIGINT. Tancant Gotham netament.

@@ -67,7 +67,7 @@ int processar_media(const char *file_name, int factor) {
     snprintf(tmp_file, sizeof(tmp_file), "tmp_%s", basename((char *)file_name));
 
     if (copiar_fitxer(file_name, tmp_file) < 0) {
-        write_message(STDERR_FILENO, "Error copiant el fitxer per compressió segura\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not duplicate file for safe distorsion.\n");
         return -1;
     }
 
@@ -75,35 +75,27 @@ int processar_media(const char *file_name, int factor) {
     int result;
 
     if (strstr(file_name, ".wav")) {
-        write_message(STDOUT_FILENO, "[HARLEY] Processant fitxer d'àudio .wav...\n");
         result = SO_compressAudio(tmp_file, factor);
-        char msg[128];
-        snprintf(msg, sizeof(msg), "[HARLEY] Compressió d'àudio finalitzada, resultat: %d\n", result);
-        write_message(STDOUT_FILENO, msg);
     } else if (strstr(file_name, ".jpg") || strstr(file_name, ".png")) {
-        write_message(STDOUT_FILENO, "[HARLEY] Processant imatge...\n");
         result = SO_compressImage(tmp_file, factor);
-        char msg[128];
-        snprintf(msg, sizeof(msg), "[HARLEY] Compressió d'imatge finalitzada, resultat: %d\n", result);
-        write_message(STDOUT_FILENO, msg);
     } else if (strstr(file_name, ".mp3")) {
-        write_message(STDERR_FILENO, "[ERROR] .mp3 no suportat. Només .wav.\n");
+        write_message(STDERR_FILENO, "[ERROR] .mp3 not supported. Only .wav.\n");
         result = ERROR_NOT_WAV;
     } else {
-        write_message(STDERR_FILENO, "[ERROR] Tipus de fitxer no suportat per a compressió.\n");
+        write_message(STDERR_FILENO, "[ERROR] Invalid format.\n");
         result =  ERROR_UNSUPPORTED_FORMAT;
     }
 
 
     if (result != NO_ERROR) {
-        write_message(STDERR_FILENO, "Error en compressió. No es substituirà l’original.\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not distort media.\n");
         unlink(tmp_file);
         return result;
     }
 
     // Substituir l’original pel fitxer comprimit
     if (rename(tmp_file, file_name) < 0) {
-        write_message(STDERR_FILENO, "Error substituint l’original pel fitxer comprimit.\n");
+        write_message(STDERR_FILENO, "[ERROR] Something happened trying to save the distorted file.\n");
         unlink(tmp_file);  // Evitar que quedi penjat
         return -1;
     }
@@ -142,26 +134,25 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&threads_mutex);
     active_threads++;
     pthread_mutex_unlock(&threads_mutex);
-    write_message(STDOUT_FILENO, "[HARLEY] Iniciant gestió de tasca...\n");
 
 
     Trama request_trama;
     if (safe_read(client_socket, &request_trama, sizeof(Trama)) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] No es pot llegir la trama completa de 256 bytes\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not read complete packet.\n");
         enviar_resposta_connexio_inicial(client_socket, 0);
         netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
     if (request_trama.data_length > sizeof(request_trama.data)) {
-        write_message(STDERR_FILENO, "[ERROR] Data_length massa gran, descartant trama\n");
+        write_message(STDERR_FILENO, "[ERROR] Data length too great. Discarding packet. \n");
         enviar_resposta_connexio_inicial(client_socket, 0);
         netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
     if (request_trama.type != 0x03) {
-        write_message(STDERR_FILENO, "[ERROR] Trama rebutjada per tipus incorrecte\n");
+        write_message(STDERR_FILENO, "[ERROR] Recieved an incorrect packet type petition. \n Disconnecting from client.");
         enviar_resposta_connexio_inicial(client_socket, 0);
         netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
@@ -218,12 +209,10 @@ void *handle_task(void *arg) {
     TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
 
     if (!metadata) {
-        write_message(STDOUT_FILENO, "[ERROR] Tasca no existent, creant nova tasca.\n");
         metadata = alloc_task_metadata(file_name, file_size, received_checksum,
                                         &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
         if (!metadata) {
-            write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar espai per la nova tasca.\n");
-            //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+            write_message(STDERR_FILENO, "[ERROR] Could not alloc memory for task.\n");
             netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
             return NULL;
         }
@@ -233,33 +222,27 @@ void *handle_task(void *arg) {
         metadata->bytes_sent = 0;
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
-    } else {
-        write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
-    }
+    } 
 
-    write_message(STDOUT_FILENO, "[HARLEY] Iniciant recepció de fitxer...\n");
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] Error rebent el fitxer.\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not recieve the file to distort.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
 
     metadata->status = TASK_PROCESSING;
-    
-    write_message(STDOUT_FILENO, "[HARLEY] Executant processar_media per fitxer: ");
-    write_message(STDOUT_FILENO, file_name);
-    write_message(STDOUT_FILENO, "\n");
+
     
     if (processar_media(file_name, factor) != NO_ERROR) {
-        write_message(STDERR_FILENO, "[ERROR] Error processant el fitxer.\n");
+        write_message(STDERR_FILENO, "[ERROR] Error processing the file.\n");
 
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
     if (!keep_running) {
-        write_message(STDERR_FILENO, "[HARLEY] Gotham ha caigut.\n");
+        write_message(STDERR_FILENO, "[HARLEY] Gotham is down.\n");
         free_task_metadata(metadata, &shared_mem_mutex);  
         close(client_socket);
         pthread_mutex_lock(&threads_mutex);
@@ -270,19 +253,19 @@ void *handle_task(void *arg) {
 
 
     if (detectar_desconnexio_fleck(client_socket)) {
-        write_message(STDERR_FILENO, "Detectada desconnexió Fleck.\n");
+        write_message(STDERR_FILENO, "Client Fleck disconnection detected.\n");
         finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket,
                                   shared_mem, current_mem_size, &shared_mem_mutex);
         return NULL;
     }
 
-    write_message(STDOUT_FILENO, "[HARLEY] Compressió finalitzada. Obrint fitxer per determinar mida...\n");
+    write_message(STDOUT_FILENO, "[HARLEY] Distorsion completed.\n");
 
 
     // Recalcular la mida real del fitxer processat
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Error obrint fitxer processat. Potser no s'ha creat?\n");
+        write_message(STDERR_FILENO, "[HARLEY] Error opening processed file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
@@ -290,7 +273,7 @@ void *handle_task(void *arg) {
     off_t size = lseek(fd, 0, SEEK_END);
     if (size == (off_t)-1) {
         close(fd);
-        write_message(STDERR_FILENO, "[HARLEY] Error al determinar la mida del fitxer processat.\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not determine distorted files' size.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;  // Error al determinar la mida del fitxer
     }
@@ -299,11 +282,11 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&shared_mem_mutex);
     metadata->total_size = distorted_file_size;
     pthread_mutex_unlock(&shared_mem_mutex);
-    write_message(STDOUT_FILENO, "[HARLEY] Enviant fitxer processat a Fleck...\n");
+    write_message(STDOUT_FILENO, "[HARLEY] Sending distorted file...\n");
 
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
-        write_message(STDERR_FILENO, "Error enviant el fitxer processat al client.\n");
+            write_message(STDOUT_FILENO, "[HARLEY] Could not send distorted file :(\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;  // Error enviant el fitxer processat
     }
@@ -329,19 +312,18 @@ void listener_harley_principal(ConfigWorker *config) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
-    write_message(STDOUT_FILENO, "[HARLEY] Entrem al thread de listener de flecks.\n");
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (server_fd < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Error creant el socket del servidor.\n");
+        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections. Aborting...\n");
         exit(EXIT_FAILURE);
     }
 
     // Configurar el socket per reutilitzar l'adreça
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Error en setsockopt(SO_REUSEADDR).\n");
+        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections. Aborting...\n");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
@@ -354,28 +336,16 @@ void listener_harley_principal(ConfigWorker *config) {
     };
 
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Error en el bind del socket del servidor.\n");
+        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections. Aborting...\n");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
 
     if (listen(server_fd, 10) < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Error en el listen del socket del servidor.\n");
+        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections. Aborting...\n");
         close(server_fd);
         exit(EXIT_FAILURE);
     }
-
-    char info[256];
-    time_t now = time(NULL);
-    strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
-
-    char msg[512];
-    snprintf(msg, sizeof(msg), "%s Worker Harley principal escoltant connexions a %s:%d\n", 
-            info, config->ip_fleck, config->port_fleck);
-    write_message(STDOUT_FILENO, msg);
-
-
-    write_message(STDOUT_FILENO, "Worker Harley principal iniciat i escoltant connexions...\n");
 
     while (keep_running) {
         if (!keep_running) break;
@@ -391,7 +361,7 @@ void listener_harley_principal(ConfigWorker *config) {
         int activity = select(server_fd + 1, &readfds, NULL, NULL, &timeout);
 
         if (activity < 0 && errno != EINTR) {
-            write_message(STDERR_FILENO, "[ERROR] select() ha fallat.\n");
+            write_message(STDERR_FILENO, "[ERROR] select() \n");
             break;
         }
 
@@ -410,7 +380,7 @@ void listener_harley_principal(ConfigWorker *config) {
                     continue;  
                 } else {
                     char dbg[128];
-                    snprintf(dbg, sizeof(dbg), "[ERROR] accept() ha fallat amb errno=%d (%s)\n", errno, strerror(errno));
+                    snprintf(dbg, sizeof(dbg), "[ERROR] accept() errno=%d (%s)\n", errno, strerror(errno));
                     write_message(STDERR_FILENO, dbg);
                     break;
                 }
@@ -420,7 +390,7 @@ void listener_harley_principal(ConfigWorker *config) {
 
                 int *socket_ptr = malloc(sizeof(int));
                 if (!socket_ptr) {
-                    write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar memòria per al socket_ptr\n");
+                    write_message(STDERR_FILENO, "[ERROR] Memory allocation error handling the task.\n");
                     close(client_socket);
                     continue;
                 }
@@ -429,7 +399,7 @@ void listener_harley_principal(ConfigWorker *config) {
 
                 pthread_t task_thread;
                 if (pthread_create(&task_thread, NULL, handle_task, socket_ptr) != 0) {
-                    write_message(STDERR_FILENO, "[ERROR] No s'ha pogut crear el thread per a la tasca\n");
+                    write_message(STDERR_FILENO, "[ERROR] Could not create thread for handling the task.\n");
                     close(client_socket);
                     free(socket_ptr);
                     continue;
@@ -442,12 +412,10 @@ void listener_harley_principal(ConfigWorker *config) {
     }
 
     close(server_fd);
-    write_message(STDOUT_FILENO, "[HARLEY] Fleck thread finalitzat.\n");
 
 }
 
 void *listener_harley_wrapper(void *arg) {
-    write_message(STDOUT_FILENO, "[HARLEY] Entrem al wrapper del thread.\n");
     listener_harley_principal((ConfigWorker *)arg);
     return NULL;
 }
@@ -464,7 +432,7 @@ void *gotham_listener_thread(void *arg) {
         if (!keep_running) break;
         Trama trama;
         if (config->base.socket_fd <= 0) {
-            write_message(STDERR_FILENO, "Socket de Gotham no vàlid, intentant reconectar...\n");
+            write_message(STDERR_FILENO, "[ERROR] Could not validate Gothams' connection. Reconnecting...\n");
             reconnectar_gotham(config, keep_running);
             sleep(1);
             continue;
@@ -493,11 +461,11 @@ void *gotham_listener_thread(void *arg) {
             }
         }
         if (bytes_read != sizeof(trama)) {
-            write_message(STDERR_FILENO, "Error llegint trama de Gotham.\n");
+            write_message(STDERR_FILENO, "[ERROR] Could not read Gotham's packet.\n");
             if (!keep_running) break;
 
             if (reconnectar_gotham(config, keep_running) < 0) {
-                write_message(STDERR_FILENO, "No s'ha pogut reconnectar amb Gotham. Aturant el worker.\n");
+                write_message(STDERR_FILENO, "[ERROR] Could not connect to Gotham. Worker is stopping.\n");
                 keep_running = 0;
                 break;  
             }
@@ -507,30 +475,21 @@ void *gotham_listener_thread(void *arg) {
         switch (trama.type) {
             case 0x02:
                 // Trama de connexió de Gotham
-                write_message(STDOUT_FILENO, "Gotham ha confirmat la connexió.\n");
+                write_message(STDOUT_FILENO, "Server Gotham has accepted connection.\n");
                 break;
             case 0x08:
-                char info[256];
-                time_t now = time(NULL);
-                strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
-
-                char msg[512];
-                snprintf(msg, sizeof(msg), "%s Gotham ha enviat una trama de promoció.\n", 
-                        info);
-                write_message(STDOUT_FILENO, msg);
-
                 config->is_primary_worker = 1;
-                write_message(STDOUT_FILENO, "Harley ara és el worker principal.\n");
-                write_message(STDOUT_FILENO, "[Harley] Iniciant thread per a Flecks...\n");
+                write_message(STDOUT_FILENO, "Now I am the main worker.\n");
+                write_message(STDOUT_FILENO, "[HARLEY] Listening for Fleck client petitions...\n");
                 pthread_create(&harley_thread, NULL, listener_harley_wrapper, config);
                 break;
             case 0x09:
                 // Trama d'error de Gotham
-                write_message(STDERR_FILENO, "Gotham ha enviat una trama d'error.\n");
+                write_message(STDERR_FILENO, "Gotham has sent an error packet.\n");
                 break;
             case 0x12:
                 // Heartbeat de Gotham
-                write_message(STDOUT_FILENO, "Gotham ha demanat un heartbeat. Responent...\n");
+                write_message(STDOUT_FILENO, "Gotham has asked for a heartbeat. Answering...\n");
                 enviar_heartbeat();
                 break;
             default:
@@ -542,7 +501,7 @@ void *gotham_listener_thread(void *arg) {
                 memset(error_trama.data, 0, sizeof(error_trama.data)); // Vaciar data
 
                 if (write(config->base.socket_fd, &error_trama, sizeof(error_trama)) != sizeof(error_trama)) {
-                    write_message(STDERR_FILENO, "Error enviant trama de resposta d'error a Gotham.\n");
+                    write_message(STDERR_FILENO, "[ERROR] Could not send error packet to Gotham server.\n");
                 }
 
                 break;

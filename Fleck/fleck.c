@@ -198,16 +198,6 @@ int connectar_a_server(const char *ip, int port) {
     int sock_fd = -1;
 
     while (retries < MAX_RETRIES) {
-        time_t now = time(NULL);
-        char timestamp[64];
-        strftime(timestamp, sizeof(timestamp), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
-
-        snprintf(buffer, sizeof(buffer), "%s Intentant connectar a %s:%d (Intent %d/%d)\n",
-                timestamp, ip, port, retries + 1, MAX_RETRIES);
-
-        
-        write_message(STDERR_FILENO, buffer);
-
         sock_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (sock_fd < 0) {
             write_message(STDERR_FILENO, "Error creant el socket\n");
@@ -239,9 +229,6 @@ int connectar_a_server(const char *ip, int port) {
         timeout.tv_sec = TIMEOUT_SECONDS;
         timeout.tv_usec = 0;
         setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-        snprintf(buffer, sizeof(buffer), "Connexió establerta amb %s:%d\n", ip, port);
-        write_message(STDERR_FILENO, buffer);
         return sock_fd;
     }
     write_message(STDERR_FILENO, "Error: No s'ha pogut connectar després de múltiples intents.\n");    
@@ -264,22 +251,22 @@ int esperar_resposta_connexio(int worker_fd) {
     Trama resposta;
 
     if (safe_read(worker_fd, &resposta, sizeof(Trama)) < 0) {
-        write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut llegir la resposta del Worker\n");
+        write_message(STDOUT_FILENO, "[ERROR] Could not read answer from worker.\n");
         close(worker_fd);
         return -1;
     }
 
     if (resposta.type == 0x03 && resposta.data_length == 0) {
-        write_message(STDOUT_FILENO, "[OK] Connexió amb el worker validada.\n");
+        write_message(STDOUT_FILENO, "[OK] Connected to worker.\n");
         return 0;
     }
 
     if (resposta.type == 0x03 && strcmp(resposta.data, "CON_KO") == 0) {
-        write_message(STDOUT_FILENO, "El worker ha rebutjat la connexió.\n");
+        write_message(STDOUT_FILENO, "[KO] Connection was refused by worker.\n");
         return -1;
     }
 
-    write_message(STDOUT_FILENO, "[ERROR] Resposta inesperada del worker.\n");
+    write_message(STDOUT_FILENO, "[ERROR] Could not validate connection to worker.\n");
     return -1;
 }
 
@@ -487,22 +474,22 @@ void establir_connexio_gotham() {
 
     Trama resposta;
     if (safe_read(sock_fd, &resposta, sizeof(Trama)) < 0) {
-        write_message(STDOUT_FILENO, "Error rebent resposta de Gotham.\n");
+        write_message(STDOUT_FILENO, "Error recieving answer from server.\n");
         return;
     }
 
     if (!validar_trama(&resposta)) {
-        write_message(STDOUT_FILENO, "Resposta de Gotham invàlida.\n");
+        write_message(STDOUT_FILENO, "Couldn not validate server's answer.\n");
         return;
     }
 
     if (resposta.type == 0x01 && resposta.data_length == 0) {
-        write_message(STDOUT_FILENO, "Connexió establerta amb Gotham.\n");
+        write_message(STDOUT_FILENO, "Connected to Gotham server.\n");
         pthread_t heartbeat_thread;
         pthread_create(&heartbeat_thread, NULL, heartbeat_gotham, NULL);
         pthread_detach(heartbeat_thread);
     } else if (strcmp(resposta.data, "CON_KO") == 0) {
-        write_message(STDOUT_FILENO, "Connexió rebutjada per Gotham.\n");
+        write_message(STDOUT_FILENO, "Connection refused by Gotham server.\n");
     }
 }
 
@@ -937,9 +924,6 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
         return -1;
     }
 
-    char buffer[128];
-    snprintf(buffer, sizeof(buffer), "Worker connectat de tipus *%s* .\n", media_type);
-    write_message(STDOUT_FILENO, buffer);
 
 
     if (strcmp(media_type, "media") == 0) {

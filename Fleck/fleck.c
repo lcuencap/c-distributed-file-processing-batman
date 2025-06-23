@@ -1090,7 +1090,13 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
 
 void netejar_distorsions_acabades() {
     pthread_mutex_lock(&status_mutex);
+    
     DistorsioStatus **curr = &head;
+    if (!head) {
+        write_message(STDOUT_FILENO, "You have no ongoing or finished distorsions.\n");
+        pthread_mutex_unlock(&status_mutex);
+        return;
+    }
     while (*curr) {
         if ((*curr)->progress == 100 || (*curr)->error == 1) {
             DistorsioStatus *a_eliminar = *curr;

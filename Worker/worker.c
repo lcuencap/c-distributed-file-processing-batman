@@ -21,7 +21,6 @@
  */
 int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int shared_mem_fd) {
     size_t nueva_mem_size = *current_mem_size + SHARED_MEM_SIZE;
-    write_message(STDOUT_FILENO, "[DEBUG] Intentant expandir la memòria compartida...\n");
 
     // Ampliar el tamaño del archivo de memoria compartida
     if (ftruncate(shared_mem_fd, nueva_mem_size) < 0) {
@@ -46,7 +45,6 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     *shared_mem = new_mem;
     *current_mem_size = nueva_mem_size;
     
-    write_message(STDOUT_FILENO, "[DEBUG][ALLOC] Memòria compartida ampliada per manca d'espai.\n");
 
     return 0;
 }
@@ -147,10 +145,6 @@ int inicialitzar_connexio_gotham(ConfigWorker *config) {
         close(socket_fd);
         return -1;
     }
-    // DEBUG: Mostrem la resposta
-    char debug[128];
-    snprintf(debug, sizeof(debug), "Rebut type=0x%02X, length=%d, data='%s'\n", resposta.type, resposta.data_length, resposta.data);
-    write_message(STDOUT_FILENO, debug);
 
     if (resposta.type == 0x02 && resposta.data_length == 0) {
         write_message(STDOUT_FILENO, "Connexió establerta amb Gotham\n");
@@ -421,15 +415,13 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         enviar_resposta_connexio_inicial(client_socket, 0);
         return -1;
     }
-    write_message(STDOUT_FILENO, "Fitxer obert correctament per escriure.\n");
 
     if (lseek(file_fd, processed_offset, SEEK_SET) < 0) {
-        write_message(STDERR_FILENO, "Error posicionant el fitxer\n");
+        write_message(STDERR_FILENO, "Error posicionant el cursor.\n");
         close(file_fd);
         enviar_resposta_connexio_inicial(client_socket, 0);
         return -1;
     }
-    write_message(STDOUT_FILENO, "Posició del fitxer ajustada correctament.\n");
 
     pthread_mutex_lock(mutex);
     metadata->status = TASK_RECEIVING;
@@ -479,24 +471,11 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         pthread_mutex_unlock(mutex);
     }
 
-    write_message(STDOUT_FILENO, "[DEBUG][RECEPCIÓ] Fitxer rebut completament. Offset actual: ");
-    char msg[64];
-    snprintf(msg, sizeof(msg), "%u\n", metadata->processed_offset);
-    write_message(STDOUT_FILENO, msg);
 
     
     fsync(file_fd);  
     close(file_fd);  
-    struct stat st;
-    if (stat(file_path, &st) == 0) {
-        char dbg[128];
-        snprintf(dbg, sizeof(dbg), "[DEBUG] Mida real al disc després de fsync: %ld bytes\n", st.st_size);
-        write_message(STDOUT_FILENO, dbg);
-    } else {
-        write_message(STDERR_FILENO, "No s'ha pogut obtenir la mida del fitxer després d'escriure.\n");
-    }
-
-
+    
 
 
     if (bytes_read < 0) {
@@ -576,12 +555,6 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
     found->bytes_sent = 0;
     found->status = TASK_RECEIVING;
     strncpy(found->checksum, checksum, MD5SUM_LENGTH);
-
-    char msg[256];
-    snprintf(msg, sizeof(msg),
-            "[DEBUG][ALLOC] Nova tasca guardada a memòria: %s | size=%u | checksum=%s | offset=%u",
-            found->file_name, found->total_size, found->checksum, found->processed_offset);
-    write_message(STDOUT_FILENO, msg);
 
     pthread_mutex_unlock(mutex);
     return found;
@@ -735,10 +708,6 @@ void netejar_memoria_tasques(void *shared_mem, size_t mem_size, pthread_mutex_t 
     }
 
     pthread_mutex_unlock(shared_mem_mutex);
-
-    char msg[128];
-    snprintf(msg, sizeof(msg), "[DEBUG] %d tasques eliminades de la memòria compartida.\n", comptador);
-    write_message(STDOUT_FILENO, msg);
 }
 
 /**
@@ -776,12 +745,12 @@ TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, co
     if (found_metadata) {
         char msg[256];
         snprintf(msg, sizeof(msg),
-                "[DEBUG][BUSCAR] Tasca trobada: %s | estat=%d | offset=%u",
+                "[BUSCAR] Tasca trobada: %s | estat=%d | offset=%u",
                 found_metadata->file_name, found_metadata->status, found_metadata->processed_offset);
         write_message(STDOUT_FILENO, msg);
     } else {
         char msg[128];
-        snprintf(msg, sizeof(msg), "[DEBUG][BUSCAR] No s'ha trobat cap tasca amb nom: %s", file_name);
+        snprintf(msg, sizeof(msg), "[ERROR] No s'ha trobat cap tasca amb nom: %s", file_name);
         write_message(STDOUT_FILENO, msg);
     }
 

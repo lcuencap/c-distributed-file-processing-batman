@@ -66,22 +66,10 @@ int processar_media(const char *file_name, int factor) {
     char tmp_file[300];
     snprintf(tmp_file, sizeof(tmp_file), "tmp_%s", basename((char *)file_name));
 
-    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer ABANS de copiar a temporal:\n");
-    mostrar_estat_fitxer(file_name);
-
-
-    // DEBUG
-    char dbg[512];
-    snprintf(dbg, sizeof(dbg), "[DEBUG] Copiant fitxer %s a temporal %s\n", file_name, tmp_file);
-    write_message(STDOUT_FILENO, dbg);
-
     if (copiar_fitxer(file_name, tmp_file) < 0) {
         write_message(STDERR_FILENO, "Error copiant el fitxer per compressió segura\n");
         return -1;
     }
-
-    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer DESPRÉS de copiar a temporal:\n");
-    mostrar_estat_fitxer(file_name);
 
   
     int result;
@@ -106,8 +94,6 @@ int processar_media(const char *file_name, int factor) {
         result =  ERROR_UNSUPPORTED_FORMAT;
     }
 
-    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer DESPRÉS de la compressió:\n");
-    mostrar_estat_fitxer(tmp_file);
 
     if (result != NO_ERROR) {
         write_message(STDERR_FILENO, "Error en compressió. No es substituirà l’original.\n");
@@ -122,8 +108,6 @@ int processar_media(const char *file_name, int factor) {
         return -1;
     }
 
-    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer DESPRÉS del rename:\n");
-    mostrar_estat_fitxer(tmp_file);
 
     return 0;  // Retorna 0 si tot ha anat bé
 }
@@ -232,9 +216,6 @@ void *handle_task(void *arg) {
 
     // Buscar/crear metadata
     TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
-    char debug[64];
-    snprintf(debug, sizeof(debug), "[DEBUG] Nom rebut per guardar: %s\n", file_name);
-    write_message(STDOUT_FILENO, debug);
 
     if (!metadata) {
         write_message(STDOUT_FILENO, "[ERROR] Tasca no existent, creant nova tasca.\n");
@@ -262,8 +243,6 @@ void *handle_task(void *arg) {
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
-    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer després de recepció:\n");
-    mostrar_estat_fitxer(file_name);
 
 
     metadata->status = TASK_PROCESSING;
@@ -425,9 +404,7 @@ void listener_harley_principal(ConfigWorker *config) {
             int client_socket = accept(server_fd, NULL, NULL);
             
             if (client_socket < 0) {
-                write_message(STDOUT_FILENO, "[DEBUG] accept() retornó -1, comprovant errno...\n");
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    write_message(STDOUT_FILENO, "[DEBUG] Motiu de -1 era EAGAIN o EWOULDBLOCK\n");
                     if (!keep_running) break;  
                     usleep(100000); // Evitar bucle de CPU 100%
                     continue;  
@@ -440,9 +417,6 @@ void listener_harley_principal(ConfigWorker *config) {
             }
 
             if (client_socket >= 0) {
-                char dbg_msg[128];
-                snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] accept() retornó socket %d\n", client_socket);
-                write_message(STDOUT_FILENO, dbg_msg);
 
                 int *socket_ptr = malloc(sizeof(int));
                 if (!socket_ptr) {
@@ -586,19 +560,14 @@ void gestionar_signal_interrupt(int sig) {
     (void)sig;
     keep_running = 0;
    
-    write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
-
     // Enviar desconnexió a Gotham
-    write_message(STDOUT_FILENO, "[DEBUG] Notificant desconnexió a Gotham...\n");
     gestionar_desconnexio_gotham(config.base.socket_fd, "media");
 
     if (config.base.socket_fd > 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] Tancant el socket d’escolta de Harley...\n");
         close(config.base.socket_fd);
         config.base.socket_fd = -1;
     }
     if (server_fd > 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] Tancant socket d’escolta del listener de Harley...\n");
         close(server_fd);
         server_fd = -1;
     }
@@ -630,7 +599,6 @@ void gestionar_signal_interrupt(int sig) {
 
 
     // Alliberar memòria compartida
-    write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria compartida...\n");
     if (munmap(shared_mem, current_mem_size) < 0) {
         write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
     }
@@ -647,10 +615,8 @@ void gestionar_signal_interrupt(int sig) {
 
 
     // Alliberar memòria de configuració
-    write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
     free(config.work_dir);
 
-    write_message(STDOUT_FILENO, "[DEBUG] Finalització de Harley completa.\n");
     exit(0);
 }
 
@@ -755,9 +721,6 @@ int main(int argc, char *argv[]) {
 
         if (threads == 0) break;
 
-        char dbg_msg[128];
-        snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] Esperant que acabin %d distorsions...\n", threads);
-        write_message(STDOUT_FILENO, dbg_msg);
         sleep(10);
     }
 

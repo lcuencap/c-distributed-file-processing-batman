@@ -108,9 +108,6 @@ void *handle_task(void *arg) {
     }
 
     if (request_trama.type != 0x03) {
-        char debug[124];
-        snprintf(debug, sizeof(debug), "[ERROR] Trama rebutjada per tipus incorrecte: %02X | Data: %s . \n", request_trama.type, request_trama.data);
-        write_message(STDERR_FILENO, debug);
         enviar_resposta_connexio_inicial(client_socket, 0);
         netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
@@ -165,9 +162,7 @@ void *handle_task(void *arg) {
 
     // Buscar/crear metadata
     TaskMetadata *metadata = buscar_tasca_per_nom(shared_mem, current_mem_size, file_name, &shared_mem_mutex);
-    char debug[64];
-    snprintf(debug, sizeof(debug), "[DEBUG] Nom rebut per guardar: %s\n", file_name);
-    write_message(STDOUT_FILENO, debug);
+    
 
     if (!metadata) {
         write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
@@ -189,15 +184,12 @@ void *handle_task(void *arg) {
         write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
     }
 
-    write_message(STDOUT_FILENO, "[ENIGMA] Iniciant recepció de fitxer...\n");
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
         write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;    
     }
-    write_message(STDOUT_FILENO, "[DEBUG] Estat del fitxer després de recepció:\n");
-    mostrar_estat_fitxer(file_name);
 
 
     metadata->status = TASK_PROCESSING;
@@ -216,13 +208,13 @@ void *handle_task(void *arg) {
         return NULL;
     }
 
-    write_message(STDOUT_FILENO, "[ENIGMA] Distorsió finalitzada. Obrint fitxer per determinar mida...\n");
+    write_message(STDOUT_FILENO, "[ENIGMA] Distorsió finalitzada.\n");
 
 
     // Recalcular la mida real del fitxer processat
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
-        write_message(STDERR_FILENO, "[ENIGMA] Error obrint fitxer processat. Potser no s'ha creat?\n");
+        write_message(STDERR_FILENO, "[ENIGMA] Error obrint fitxer processat.\n");
         //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         return NULL;
     }
@@ -239,7 +231,6 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&shared_mem_mutex);
     metadata->total_size = distorted_file_size;
     pthread_mutex_unlock(&shared_mem_mutex);
-    write_message(STDOUT_FILENO, "[ENIGMA] Enviant fitxer processat a Fleck...\n");
 
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
@@ -269,7 +260,6 @@ void listener_enigma_principal(ConfigWorker *config) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
 
-    write_message(STDOUT_FILENO, "[ENIGMA] Entrem al thread de listener de flecks.\n");
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -308,13 +298,6 @@ void listener_enigma_principal(ConfigWorker *config) {
     time_t now = time(NULL);
     strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
 
-    char msg[512];
-    snprintf(msg, sizeof(msg), "%s Worker ENIGMA principal escoltant connexions a %s:%d\n", 
-            info, config->ip_fleck, config->port_fleck);
-    write_message(STDOUT_FILENO, msg);
-
-
-    write_message(STDOUT_FILENO, "Worker ENIGMA principal iniciat i escoltant connexions...\n");
 
     while (keep_running) {
         if (!keep_running) break;
@@ -342,7 +325,6 @@ void listener_enigma_principal(ConfigWorker *config) {
             
             if (client_socket < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    write_message(STDOUT_FILENO, "[DEBUG] Motiu de -1 era EAGAIN o EWOULDBLOCK\n");
                     if (!keep_running) break;  
                     usleep(100000); // Evitar bucle de CPU 100%
                     continue;  
@@ -356,7 +338,6 @@ void listener_enigma_principal(ConfigWorker *config) {
 
             if (client_socket >= 0) {
                 char dbg_msg[128];
-                snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] accept() retornó socket %d\n", client_socket);
                 write_message(STDOUT_FILENO, dbg_msg);
 
                 int *socket_ptr = malloc(sizeof(int));
@@ -516,19 +497,14 @@ void gestionar_signal_interrupt(int sig) {
     (void)sig;
     keep_running = 0;
     
-    write_message(STDOUT_FILENO, "[DEBUG] Signal SIGINT rebut. Iniciant neteja del worker...\n");
-
     // Enviar desconnexió a Gotham
-    write_message(STDOUT_FILENO, "[DEBUG] Notificant desconnexió a Gotham...\n");
     gestionar_desconnexio_gotham(config.base.socket_fd, "text");
 
     if (config.base.socket_fd > 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] Tancant el socket d’escolta d'enigma...\n");
         close(config.base.socket_fd);
         config.base.socket_fd = -1;
     }
     if (server_fd > 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] Tancant socket d’escolta del listener d'enigma...\n");
         close(server_fd);
         server_fd = -1;
     }
@@ -560,7 +536,6 @@ void gestionar_signal_interrupt(int sig) {
 
 
     // Alliberar memòria compartida
-    write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria compartida...\n");
     if (munmap(shared_mem, current_mem_size) < 0) {
         write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
     }
@@ -577,10 +552,8 @@ void gestionar_signal_interrupt(int sig) {
     
 
     // Alliberar memòria de configuració
-    write_message(STDOUT_FILENO, "[DEBUG] Alliberant memòria de config...\n");
     free(config.work_dir);
 
-    write_message(STDOUT_FILENO, "[DEBUG] Finalització de enigma completa.\n");
     exit(0);
 }
 
@@ -685,9 +658,6 @@ int main(int argc, char *argv[]) {
 
         if (threads == 0) break;
         
-        char dbg_msg[128];
-        snprintf(dbg_msg, sizeof(dbg_msg), "[DEBUG] Esperant que acabin %d distorsions...\n", threads);
-        write_message(STDOUT_FILENO, dbg_msg);
         sleep(10);
     }
 

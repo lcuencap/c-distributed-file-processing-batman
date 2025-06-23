@@ -315,6 +315,9 @@ void *listener_worker(void *arg) {
         exit(EXIT_FAILURE);
     }
 
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
         .sin_addr.s_addr = inet_addr(config.worker_ip),
@@ -649,11 +652,16 @@ void *listener_fleck(void *arg) {
         exit(EXIT_FAILURE);
     }
 
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
         .sin_addr.s_addr = inet_addr(config.base.ip),
         .sin_port = htons(config.base.port)
     };
+    
+
 
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         write_message(STDERR_FILENO, "[FLECK] Failed to bind server socket.\n");

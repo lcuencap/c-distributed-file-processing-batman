@@ -54,3 +54,6 @@
 [2025-06-23 17:14:34] Worker ID: 4, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 1
 [2025-06-23 17:14:41] Worker ID: 6, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 0
 [2025-06-23 17:14:46] Fleck connectat: Laura (Socket:10)
+[2025-06-23 17:23:37] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-23 17:23:49] Logger Arkham inicialitzat correctament.
+[2025-06-23 17:23:50] [WORKER] Failed to bind server socket.

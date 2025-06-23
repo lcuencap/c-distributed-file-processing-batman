@@ -20,3 +20,21 @@
 
 [2025-06-23 12:33:02] Fleck connectat: Laura (Socket:6)
 [2025-06-23 12:33:21] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-23 12:51:15] Logger Arkham inicialitzat correctament.
+[2025-06-23 12:51:18] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-23 12:51:18] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-23 12:51:18] Worker registrat: 127.0.0.1:9132 (Media)
+
+[2025-06-23 12:51:31] Fleck connectat: Laura (Socket:5)
+[2025-06-23 13:09:14] Trama 0x07 rebuda: worker sol·licita desconnexió.
+[2025-06-23 13:09:14] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-23 13:09:33] Fleck ha sol·licitat la desconnexió.
+[2025-06-23 13:09:55] Fleck 'Laura' ha superat el timeout de 20s. Eliminant-lo.
+[2025-06-23 13:12:25] Fleck connectat: Laura (Socket:9)
+[2025-06-23 13:12:49] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-23 13:12:49] Worker ID: 2, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-23 13:12:49] Worker registrat: 127.0.0.1:9132 (Media)
+
+[2025-06-23 13:15:33] Fleck ha sol·licitat la desconnexió.
+[2025-06-23 13:15:36] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-23 13:15:48] Logger Arkham inicialitzat correctament.

@@ -902,7 +902,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    write_message(STDOUT_FILENO, "Iniciant Gotham Mini...\n");
 
     int fd = open(argv[1], O_RDONLY);
     if (fd < 0 || parse_gotham_config(fd, &config) < 0) {
@@ -918,16 +917,12 @@ int main(int argc, char *argv[]) {
 
     signal(SIGINT, cleanup);
 
-    write_message(STDOUT_FILENO, "Iniciem listener fleck.\n");
     if (pthread_create(&fleck_thread, NULL, listener_fleck, NULL) == 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] Thread listener_fleck creat correctament.\n");
     } else {
         write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut crear el thread listener_fleck.\n");
     }
 
-    write_message(STDOUT_FILENO, "Iniciem listener worker.\n");
     if (pthread_create(&worker_thread, NULL, listener_worker, NULL) == 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] Thread listener_worker creat correctament.\n");
     } else {
         write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut crear el thread listener_worker.\n");
     }
@@ -940,7 +935,6 @@ int main(int argc, char *argv[]) {
     
     pthread_t worker_monitor_thread;
     pthread_t fleck_monitor_thread;
-    write_message(STDOUT_FILENO, "Iniciem monitorització de heartbeats.\n");
     pthread_create(&worker_monitor_thread, NULL, monitoritzar_heartbeats_workers, NULL);
     pthread_create(&fleck_monitor_thread, NULL, monitoritzar_heartbeats_flecks, NULL);
 

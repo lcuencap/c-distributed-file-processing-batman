@@ -58,25 +58,6 @@ typedef struct {
     int worker_fd; 
 } DistorsioArgs;
 
-
-// Estructura per gestionar una tasca
-typedef struct Task {
-    int task_id;                  // Identificador únic de la tasca
-    char file_name[256];          // Nom del fitxer associat a la tasca
-    int client_socket;            // Socket del client Fleck
-    int worker_socket;            // Socket del worker assignat
-    TaskStatus status;            // Estat de la tasca
-    struct Task *prev;            // Enllaç a la tasca anterior
-    struct Task *next;            // Enllaç a la següent tasca
-} Task;
-
-// Estructura per gestionar la llista de tasques
-typedef struct {
-    Task *head;                   // Punter a la primera tasca
-    Task *tail;                   // Punter a l’última tasca
-    pthread_mutex_t mutex;        // Mutex per protegir l'accés concurrent
-} TaskManager;
-
 // Tipus d’instàncies al sistema
 typedef enum {
     GOTHAM,   // Servei central

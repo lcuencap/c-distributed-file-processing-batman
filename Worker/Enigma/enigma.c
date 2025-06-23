@@ -470,15 +470,11 @@ void *gotham_listener_thread(void *arg) {
                 enviar_heartbeat();
                 break;
             default:
-                write_message(STDERR_FILENO, "[ENIGMA] Trama desconeguda de Gotham.\n");
-                // Enviar trama de error (0x09) de respuesta
-                Trama error_trama;
-                error_trama.type = 0x09;
-                error_trama.data_length = 0; // Sin datos
-                memset(error_trama.data, 0, sizeof(error_trama.data)); // Vaciar data
-
-                if (write(config->base.socket_fd, &error_trama, sizeof(error_trama)) != sizeof(error_trama)) {
-                    write_message(STDERR_FILENO, "[ENIGMA] Error enviant trama de resposta d'error a Gotham.\n");
+                write_message(STDERR_FILENO, "Unknown packet type.\n");
+                Trama error;
+                inicialitzar_trama(&error, "0x09", "");
+                if (write(config->base.socket_fd, &error, sizeof(error)) != sizeof(error)) {
+                    write_message(STDERR_FILENO, "[ERROR] Could not send error packet to Gotham server.\n");
                 }
 
                 break;

@@ -628,165 +628,6 @@ void construir_data_worker(const ConfigWorker *worker, char *buffer) {
     }
 }
 
-/**
- * Thread que gestiona les connexions dels clients Fleck.
- * Accepta connexions entrants i crea un nou thread per cada client.
- */
-void *gestionar_client_fleck(void *arg) {
-    int client_socket = *(int *)arg;
-    free(arg);  // Liberar la memoria del socket pasado por puntero
-
-    Trama trama;
-    while (read(client_socket, &trama, sizeof(trama)) == sizeof(trama)) {
-        if (!validar_trama(&trama)) {
-            respondre_trama_erronia(client_socket, "Fleck");
-            continue;
-        }
-        if (trama.type == 0x01) {
-            ConfigFleck newFleck;
-            if (addFleck(&newFleck, client_socket, trama.data) < 0) {
-                // Si hi ha hagut un error afegint el Fleck
-                Trama resposta_ko;
-                inicialitzar_trama(&resposta_ko, 0x01, "CON_KO");
-                write(client_socket, &resposta_ko, sizeof(resposta_ko));
-                close(client_socket);
-                return NULL;
-            }
-
-            // Si tot ha anat bé, enviar resposta OK
-            Trama resposta_ok;
-            inicialitzar_trama(&resposta_ok, 0x01, "");
-            write(client_socket, &resposta_ok, sizeof(resposta_ok));
-            char log_msg[256];
-            snprintf(log_msg, sizeof(log_msg), "Fleck connectat: %s (Socket:%d)", 
-                    newFleck.username, newFleck.base.socket_fd);
-            log_event(log_msg);
-
-            char msg[256];
-            snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)\n", newFleck.username);
-            write(STDOUT_FILENO, msg, strlen(msg));
-        } else if (trama.type == 0x07) {
-            log_event("Fleck ha sol·licitat la desconnexió.");
-            close(client_socket);
-            break;
-        } else if (trama.type == 0x10) {
-            char *mediaType = strtok(trama.data, "&");
-            char *fileName = strtok(NULL, "&");
-            Trama resposta;
-
-            if (!mediaType || !fileName) {
-                inicialitzar_trama(&resposta, 0x10, "MEDIA_KO");
-                write(client_socket, &resposta, sizeof(resposta));
-                continue;
-            }
-
-            // Verifica que l'extensió del fitxer coincideixi amb el tipus de media
-            int tipus_worker;
-            if (!validar_tipus_fitxer(mediaType, fileName, &tipus_worker)) {
-                inicialitzar_trama(&resposta, 0x10, "MEDIA_KO");
-                write(client_socket, &resposta, sizeof(resposta));
-                continue;
-            }
-
-           // Buscar el worker principal del tipus sol·licitat
-            pthread_mutex_lock(&worker_mutex);
-            ConfigWorker *principal = NULL;
-
-            if (strcmp(mediaType, "media") == 0) {
-                principal = obtenir_principal(HARLEY);
-            } else if (strcmp(mediaType, "text") == 0) {
-                principal = obtenir_principal(ENIGMA);
-            }
-            pthread_mutex_unlock(&worker_mutex);
-
-            if (principal) {
-                char resposta_data[64];
-                construir_data_worker(principal, resposta_data);
-                inicialitzar_trama(&resposta, 0x10, resposta_data);
-            } else {
-                inicialitzar_trama(&resposta, 0x10, "DISTORT_KO");
-            }
-            write(client_socket, &resposta, sizeof(resposta));
-
-        } else if (trama.type == 0x11) {
-            char *mediaType = strtok(trama.data, "&");
-            char *fileName = strtok(NULL, "&");
-
-            Trama resposta;
-
-            if (!mediaType || !fileName) {
-                inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
-                write(client_socket, &resposta, sizeof(resposta));
-                return NULL;
-            }
-
-            int tipus_worker;
-            if (!validar_tipus_fitxer(mediaType, fileName, &tipus_worker)) {
-                inicialitzar_trama(&resposta, 0x11, "MEDIA_KO");
-                write(client_socket, &resposta, sizeof(resposta));
-                return NULL;
-            }
-        
-            
-            char ip_tmp[64];
-            int port_tmp = -1;
-
-            pthread_mutex_lock(&worker_mutex);
-            ConfigWorker *nou_principal = obtenir_principal(tipus_worker);
-            if (!nou_principal) {
-                write_message(STDOUT_FILENO, "[REASSIGN] Cap principal trobat després d’eliminar. Forçant promoció.\n");
-                nou_principal = seleccionar_nou_principal(tipus_worker);
-            }
-            if (nou_principal) {
-                char debug_msg[128];
-                snprintf(debug_msg, sizeof(debug_msg),
-                        "[REASSIGN] Nou principal (socket_fd %d) del tipus %d amb id %d.",
-                        nou_principal->base.socket_fd, tipus_worker, nou_principal->worker_id);
-                strncpy(ip_tmp, nou_principal->ip_fleck, sizeof(ip_tmp));
-                ip_tmp[sizeof(ip_tmp) - 1] = '\0';
-                port_tmp = nou_principal->port_fleck;
-            }
-            pthread_mutex_unlock(&worker_mutex);
-            if (port_tmp == -1) {
-                inicialitzar_trama(&resposta, 0x11, "DISTORT_KO");
-            } else {
-                write_message(STDOUT_FILENO, "[REASSIGN] S'envia 0x11 al fleck amb el nou principal.\n");
-                char data_resposta[64];
-                snprintf(data_resposta, sizeof(data_resposta), "%s&%d", ip_tmp, port_tmp);
-                inicialitzar_trama(&resposta, 0x11, data_resposta);
-            }
-            ssize_t bytes_written = write(client_socket, &resposta, sizeof(resposta));
-            if (bytes_written != sizeof(trama)) {
-                log_event("Error en enviar la trama: write incomplet o fallit.");
-                // opcional: tancar socket, marcar worker com caigut, etc.
-            }
-        } else if (trama.type == 0x12) {
-            // Actualitzar l'últim heartbeat del Fleck
-            pthread_mutex_lock(&fleck_mutex);
-            for (int i = 0; i < num_flecks; i++) {
-                if (flecks[i].base.socket_fd == client_socket) {
-                    flecks[i].last_heartbeat = time(NULL);
-                    break;
-                }
-            }
-            pthread_mutex_unlock(&fleck_mutex);
-        } else {
-            // Tipus desconegut de trama
-            char missatge[64];
-            snprintf(missatge, sizeof(missatge), "Trama desconeguda rebuda de Fleck: 0x%02X\n", trama.type);
-            write_message(STDOUT_FILENO, missatge);
-            log_event(missatge);
-
-            Trama resposta_error;
-            inicialitzar_trama(&resposta_error, 0x09, "");
-            write(client_socket, &resposta_error, sizeof(resposta_error));
-        }
-    }
-
-    close(client_socket);
-    return NULL;
-}
-
 
 /**
  * Funció de neteja que s'executa quan es rep un senyal SIGINT (Ctrl+C).
@@ -830,45 +671,136 @@ void cleanup(int sig) {
  */
 void *listener_fleck(void *arg) {
     (void)arg;
-    int server_fd;
-    struct sockaddr_in address;
-    socklen_t addrlen = sizeof(address);
-
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        write_message(STDERR_FILENO, "Error al crear el socket del servidor de Flecks.\n");
-        cleanup(0);
+        perror("socket");
+        exit(EXIT_FAILURE);
     }
 
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = inet_addr(config.base.ip);
-    address.sin_port = htons(config.base.port);
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = inet_addr(config.base.ip),
+        .sin_port = htons(config.base.port)
+    };
 
-    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        write_message(STDERR_FILENO, "Error en el bind del socket del servidor de Flecks.\n");
-        cleanup(0);
+    if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("bind");
+        exit(EXIT_FAILURE);
     }
 
     if (listen(server_fd, 10) < 0) {
-        write_message(STDERR_FILENO, "Error en el listen del socket del servidor de Flecks.\n");
-        cleanup(0);
+        perror("listen");
+        exit(EXIT_FAILURE);
     }
 
+    size_t capacity = INITIAL_CAPACITY;
+    struct pollfd *poll_fds = malloc(capacity * sizeof(struct pollfd));
+    if (!poll_fds) {
+        perror("malloc poll_fds");
+        exit(EXIT_FAILURE);
+    }
+
+    poll_fds[0].fd = server_fd;
+    poll_fds[0].events = POLLIN;
+    int nfds = 1;
+
     while (1) {
-        int *client_socket = malloc(sizeof(int));
-        if (!client_socket) {
+        int ready = poll(poll_fds, nfds, 5000);
+        if (ready < 0) {
+            perror("poll");
             continue;
         }
 
-        *client_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
-        if (*client_socket >= 0) {
-            pthread_create(&fleck_thread, NULL, gestionar_client_fleck, client_socket);
-            pthread_detach(fleck_thread);
-        } else {
-            free(client_socket);
+        for (int i = 0; i < nfds && ready > 0; i++) {
+            if (!(poll_fds[i].revents & POLLIN)) continue;
+            ready--;
+
+            if (poll_fds[i].fd == server_fd) {
+                int client_fd = accept(server_fd, NULL, NULL);
+                if (client_fd >= 0) {
+                    if (nfds >= (int)capacity) {
+                        capacity *= 2;
+                        struct pollfd *new_fds = realloc(poll_fds, capacity * sizeof(struct pollfd));
+                        if (!new_fds) {
+                            perror("realloc poll_fds");
+                            close(client_fd);
+                            continue;
+                        }
+                        poll_fds = new_fds;
+                    }
+                    poll_fds[nfds].fd = client_fd;
+                    poll_fds[nfds].events = POLLIN;
+                    nfds++;
+                }
+                continue;
+            }
+
+            int client_fd = poll_fds[i].fd;
+            Trama trama;
+            ssize_t len = read(client_fd, &trama, sizeof(trama));
+            if (len != sizeof(trama)) {
+                close(client_fd);
+                poll_fds[i] = poll_fds[nfds - 1];
+                nfds--;
+                i--;
+                continue;
+            }
+
+            if (!validar_trama(&trama)) {
+                Trama resposta;
+                inicialitzar_trama(&resposta, 0x09, "");
+                write(client_fd, &resposta, sizeof(resposta));
+                continue;
+            }
+
+            if (trama.type == 0x01) {
+                ConfigFleck newFleck;
+                if (addFleck(&newFleck, client_fd, trama.data) < 0) {
+                    Trama resposta_ko;
+                    inicialitzar_trama(&resposta_ko, 0x01, "CON_KO");
+                    write(client_fd, &resposta_ko, sizeof(resposta_ko));
+                    close(client_fd);
+                    poll_fds[i] = poll_fds[nfds - 1];
+                    nfds--;
+                    i--;
+                    continue;
+                }
+
+                Trama resposta_ok;
+                inicialitzar_trama(&resposta_ok, 0x01, "");
+                write(client_fd, &resposta_ok, sizeof(resposta_ok));
+
+                char log_msg[256];
+                snprintf(log_msg, sizeof(log_msg), "Fleck connectat: %s (Socket:%d)", newFleck.username, newFleck.base.socket_fd);
+                log_event(log_msg);
+
+                char msg[256];
+                snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)", newFleck.username);
+                write(STDOUT_FILENO, msg, strlen(msg));
+            } else if (trama.type == 0x07) {
+                log_event("Fleck ha sol·licitat la desconnexió.");
+                close(client_fd);
+                poll_fds[i] = poll_fds[nfds - 1];
+                nfds--;
+                i--;
+            } else if (trama.type == 0x12) {
+                pthread_mutex_lock(&fleck_mutex);
+                for (int f = 0; f < num_flecks; f++) {
+                    if (flecks[f].base.socket_fd == client_fd) {
+                        flecks[f].last_heartbeat = time(NULL);
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&fleck_mutex);
+            } else {
+                Trama resposta_error;
+                inicialitzar_trama(&resposta_error, 0x09, "");
+                write(client_fd, &resposta_error, sizeof(resposta_error));
+            }
         }
     }
 
+    free(poll_fds);
     return NULL;
 }
 

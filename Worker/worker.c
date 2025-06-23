@@ -45,8 +45,6 @@ int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int
     // **Actualizar punteros**
     *shared_mem = new_mem;
     *current_mem_size = nueva_mem_size;
-    int *worker_count = (int *)new_mem;
-
     
     write_message(STDOUT_FILENO, "[DEBUG][ALLOC] Memòria compartida ampliada per manca d'espai.\n");
 
@@ -539,47 +537,6 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
 }
 
 
-/**
- * @brief Afegeix una nova connexió a la cua de connexions.
- * @param client_socket Socket del client que s'ha connectat.
- * @param connection_queue Punter a la cua de connexions.
- * @param queue_rear Punter al final de la cua.
- * @param queue_count Punter al comptador d'elements a la cua.
- * @param queue_mutex Mutex per a protegir l'accés a la cua.
- * @param queue_not_empty Condició per a indicar que la cua no està buida.
- * @param queue_not_full Condició per a indicar que la cua no està plena.
- */
-void enqueue_connection(int client_socket, int* connection_queue, int* queue_rear, int* queue_count,
-    pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full) {
-    
-    if (client_socket < 0) {
-        write_message(STDERR_FILENO, "[ERROR] No s'hauria d'enqueuar un socket < 0\n");
-        return;
-    }
-    
-    pthread_mutex_lock(queue_mutex);
-    while (*queue_count == MAX_QUEUE_SIZE)
-    pthread_cond_wait(queue_not_full, queue_mutex);
-    
-    char dbg_msg[256];
-    snprintf(dbg_msg, sizeof(dbg_msg), 
-        "[DEBUG] Enqueuing socket %d | queue_rear=%d | queue_count(before)=%d\n", 
-        client_socket, *queue_rear, *queue_count);
-    write_message(STDOUT_FILENO, dbg_msg);
-
-    connection_queue[*queue_rear] = client_socket;
-    *queue_rear = (*queue_rear + 1) % MAX_QUEUE_SIZE;
-    (*queue_count)++;
-
-    snprintf(dbg_msg, sizeof(dbg_msg), 
-        "[DEBUG] queue_count(after)=%d | next queue_rear=%d\n", 
-        *queue_count, *queue_rear);
-    write_message(STDOUT_FILENO, dbg_msg);
-
-
-    pthread_cond_signal(queue_not_empty);
-    pthread_mutex_unlock(queue_mutex);
-}
 
 /**
  * @brief Afegeix una nova tasca a la memòria compartida. Amplia la memòria si cal.
@@ -640,33 +597,6 @@ void free_task_metadata(TaskMetadata *metadata, pthread_mutex_t *mutex) {
     pthread_mutex_unlock(mutex);
 }
 
-
-/**
- * @brief Desempaqueta una connexió de la cua de connexions.
- * @param connection_queue Punter a la cua de connexions.
- * @param queue_front Punter al front de la cua.
- * @param queue_count Punter al comptador d'elements a la cua.
- * @param queue_mutex Mutex per a protegir l'accés a la cua.
- * @param queue_not_empty Condició per a indicar que la cua no està buida.
- * @param queue_not_full Condició per a indicar que la cua no està plena.
- * @param keep_running Indica si el worker segueix en execució.
- * @return Retorna el socket del client desempaquetat, o -1 si el worker està tancant.
- */
-int dequeue_connection(int* connection_queue, int* queue_front, int* queue_count,
-    pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full, int keep_running) {
-    if (!keep_running) return -1;  // Si el worker està tancant, no es pot desempaquetar
-    pthread_mutex_lock(queue_mutex);
-    while (*queue_count == 0)
-    pthread_cond_wait(queue_not_empty, queue_mutex);
-
-    int client_socket = connection_queue[*queue_front];
-    *queue_front = (*queue_front + 1) % MAX_QUEUE_SIZE;
-    (*queue_count)--;
-
-    pthread_cond_signal(queue_not_full);
-    pthread_mutex_unlock(queue_mutex);
-    return client_socket;
-}
 
 void marcar_tasca_com_fallida(TaskMetadata *metadata) {
     metadata->status = TASK_FAILED;

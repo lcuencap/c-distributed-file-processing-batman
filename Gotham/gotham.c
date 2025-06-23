@@ -804,6 +804,43 @@ void *gestionar_client_fleck(void *arg) {
     return NULL;
 }
 
+
+/**
+ * Funció de neteja que s'executa quan es rep un senyal SIGINT (Ctrl+C).
+ * Tanca tots els sockets oberts i allibera la memòria.
+ * @param sig Senyal rebut (no s'utilitza aquí, però és necessari per a la signatura).
+ */
+void cleanup(int sig) {
+    (void)sig;
+    log_event("S’ha rebut SIGINT. Tancant Gotham netament.");
+
+    // Tancar sockets de workers
+    pthread_mutex_lock(&worker_mutex);
+    for (int i = 0; i < num_workers; i++) {
+        close(workers[i].base.socket_fd);
+        free(workers[i].base.ip);
+        free(workers[i].ip_fleck);
+    }
+    free(workers);
+    pthread_mutex_unlock(&worker_mutex);
+
+    // Tancar sockets de flecks
+    pthread_mutex_lock(&fleck_mutex);
+    for (int i = 0; i < num_flecks; i++) {
+        close(flecks[i].base.socket_fd);
+        free(flecks[i].base.ip);
+        free(flecks[i].username);
+    }
+    free(flecks);
+    pthread_mutex_unlock(&fleck_mutex);
+
+    kill(arkham_pid, SIGTERM);
+    close(log_pipe_fd[1]);  // Tanca la pipe
+
+    log_event("Tots els recursos s’han alliberat. Adeu.");
+    exit(0);
+}
+
 /**
  * Thread que escolta les connexions dels clients Fleck.
  * Accepta connexions entrants i crea un nou thread per gestionar cada client.
@@ -851,43 +888,6 @@ void *listener_fleck(void *arg) {
 
     return NULL;
 }
-
-/**
- * Funció de neteja que s'executa quan es rep un senyal SIGINT (Ctrl+C).
- * Tanca tots els sockets oberts i allibera la memòria.
- * @param sig Senyal rebut (no s'utilitza aquí, però és necessari per a la signatura).
- */
-void cleanup(int sig) {
-    (void)sig;
-    log_event("S’ha rebut SIGINT. Tancant Gotham netament.");
-
-    // Tancar sockets de workers
-    pthread_mutex_lock(&worker_mutex);
-    for (int i = 0; i < num_workers; i++) {
-        close(workers[i].base.socket_fd);
-        free(workers[i].base.ip);
-        free(workers[i].ip_fleck);
-    }
-    free(workers);
-    pthread_mutex_unlock(&worker_mutex);
-
-    // Tancar sockets de flecks
-    pthread_mutex_lock(&fleck_mutex);
-    for (int i = 0; i < num_flecks; i++) {
-        close(flecks[i].base.socket_fd);
-        free(flecks[i].base.ip);
-        free(flecks[i].username);
-    }
-    free(flecks);
-    pthread_mutex_unlock(&fleck_mutex);
-
-    kill(arkham_pid, SIGTERM);
-    close(log_pipe_fd[1]);  // Tanca la pipe
-
-    log_event("Tots els recursos s’han alliberat. Adeu.");
-    exit(0);
-}
-
 
 /**
  * Funció principal del programa.

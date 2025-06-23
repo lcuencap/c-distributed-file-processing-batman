@@ -12,20 +12,17 @@ ENIGMA_DIR = $(WORKER_DIR)/Enigma
 HARLEY_DIR = $(WORKER_DIR)/Harley
 
 # Arxius objecte
-UTILS_OBJS = $(UTILS_DIR)/file_utils.o $(UTILS_DIR)/trames.o $(UTILS_DIR)/so_compression.o $(UTILS_DIR)/task_manager.o
+UTILS_OBJS = $(UTILS_DIR)/file_utils.o $(UTILS_DIR)/trames.o $(UTILS_DIR)/so_compression.o
 WORKER_OBJS = $(WORKER_DIR)/worker.o
 
 # Targets
-all: fleck gotham gotham_mini enigma harley
+all: fleck gotham enigma harley
 
 fleck: $(FLECK_DIR)/fleck.c $(UTILS_OBJS)
 	$(CC) $(CFLAGS) -o $(FLECK_DIR)/fleck $(FLECK_DIR)/fleck.c $(UTILS_OBJS) $(LDFLAGS)
 
 gotham: $(GOTHAM_DIR)/gotham.c $(UTILS_OBJS)
 	$(CC) $(CFLAGS) -o $(GOTHAM_DIR)/gotham $(GOTHAM_DIR)/gotham.c $(UTILS_OBJS) $(LDFLAGS)
-
-gotham_mini: $(GOTHAM_DIR)/gotham_mini.c $(UTILS_OBJS)
-	$(CC) $(CFLAGS) -o $(GOTHAM_DIR)/gotham_mini $(GOTHAM_DIR)/gotham_mini.c $(UTILS_OBJS) $(LDFLAGS)
 
 enigma: $(ENIGMA_DIR)/enigma.c $(UTILS_OBJS) $(WORKER_OBJS)
 	$(CC) $(CFLAGS) -o $(ENIGMA_DIR)/enigma $(ENIGMA_DIR)/enigma.c $(UTILS_OBJS) $(WORKER_OBJS) $(LDFLAGS)
@@ -42,10 +39,6 @@ $(UTILS_DIR)/trames.o: $(UTILS_DIR)/trames.c $(UTILS_DIR)/trames.h
 
 $(UTILS_DIR)/so_compression.o: $(UTILS_DIR)/so_compression.h
 	touch $(UTILS_DIR)/so_compression.o
-
-$(UTILS_DIR)/task_manager.o: $(UTILS_DIR)/task_manager.c $(UTILS_DIR)/task_manager.h
-	$(CC) $(CFLAGS) -c $(UTILS_DIR)/task_manager.c -o $(UTILS_DIR)/task_manager.o
-
 
 # Regles per a Worker
 $(WORKER_DIR)/worker.o: $(WORKER_DIR)/worker.c $(WORKER_DIR)/worker.h

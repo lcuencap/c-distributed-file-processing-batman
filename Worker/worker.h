@@ -15,7 +15,6 @@
 #include "../Utils/trames.h"
 #include "../Utils/sys_params.h"
 #include "../Utils/file_utils.h"
-#include "../Utils/task_manager.h"
 
 #define SHARED_MEM_SIZE 1024 * 1024 // 1 MB de memoria compartida
 #define MAX_QUEUE_SIZE 10
@@ -26,8 +25,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
 void assegurar_working_directory(char *work_dir, int harley);
 int detectar_desconnexio_fleck(int client_socket);
 void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket,
-                                       TaskManager *task_manager, void *shared_mem,
-                                       size_t current_mem_size, pthread_mutex_t *shared_mem_mutex);
+                                       void *shared_mem, size_t current_mem_size, pthread_mutex_t *shared_mem_mutex);
 void gestionar_desconnexio_fleck(const char *file_name, int client_socket, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *mutex);
 int enviar_fitxer_processat(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex,
                              int gotham_socket_fd);
@@ -51,16 +49,6 @@ int inicialitzar_connexio_gotham(ConfigWorker *config);
 void gestionar_desconnexio_gotham(int socket_fd, const char *workerType);
 int reconnectar_gotham(ConfigWorker *config, int keep_running);
 
-// Funcions per la gestió de senyals
-void gestionar_signal_interrupt_worker(int sig, TaskManager *task_manager, ConfigWorker *config, 
-                                void *shared_mem, int *shared_mem_fd, const char *shm_name, 
-                                pthread_mutex_t *task_mutex, size_t shared_mem_size, pthread_mutex_t *shared_mem_mutex);
-
-
-
-void enqueue_connection(int client_socket, int* connection_queue, int* queue_rear, int* queue_count, pthread_mutex_t* queue_mutex, pthread_cond_t *queue_not_empty, pthread_cond_t *queue_not_full);    
-int dequeue_connection(int* connection_queue, int* queue_front, int* queue_count,
-    pthread_mutex_t* queue_mutex, pthread_cond_t* queue_not_empty, pthread_cond_t* queue_not_full, int keep_running);
 void marcar_tasca_com_fallida(TaskMetadata *metadata);
 
 #endif // WORKER_H

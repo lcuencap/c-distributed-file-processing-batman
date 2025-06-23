@@ -1118,11 +1118,6 @@ void netejar_distorsions_acabades() {
  * @param command Comanda completa introduïda per l'usuari.
  */
 void gestionar_comanda_distort(char *command) {
-    if (!connected_to_gotham) {
-        write_message(STDOUT_FILENO, "No estas connectat a Gotham\n");
-        return;
-    }
-
     char *file = strtok(command + 8, " ");
     char *factor_str = strtok(NULL, " ");
     
@@ -1231,6 +1226,10 @@ void gestionar_comandes_fleck() {
             const char *extensions[] = {".txt"};
             gestionar_comanda_list(extensions, 1);
         } else if (strncasecmp(command, "DISTORT", 7) == 0) {
+            if (!connected_to_gotham) {
+                write_message(STDOUT_FILENO, "No estas connectat a Gotham\n");
+                return;
+            }
             char *cmd_copy = strdup(command);
             if (!cmd_copy) {
                 write_message(STDOUT_FILENO, "Error assignant memòria per la comanda\n");

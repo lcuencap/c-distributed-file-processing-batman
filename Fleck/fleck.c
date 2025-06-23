@@ -532,7 +532,7 @@ void gestionar_comanda_list(const char **media_types, size_t count) {
                 size_t len_file = strlen(file_name);
                 size_t len_ext = strlen(ext);
                 if (len_file > len_ext && strcmp(file_name + len_file - len_ext, ext) == 0) {
-                    int len = snprintf(buffer, sizeof(buffer), "%d. %s\n", index++, file_name);
+                    int len = snprintf(buffer, sizeof(buffer), "\t %d. %s\n", index++, file_name);
                     if (len > 0) {
                         write_message(STDOUT_FILENO, buffer);
                     }

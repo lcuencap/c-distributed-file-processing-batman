@@ -1228,7 +1228,7 @@ void gestionar_comandes_fleck() {
         } else if (strncasecmp(command, "DISTORT", 7) == 0) {
             if (!connected_to_gotham) {
                 write_message(STDOUT_FILENO, "No estas connectat a Gotham\n");
-                return;
+                continue;
             }
             char *cmd_copy = strdup(command);
             if (!cmd_copy) {

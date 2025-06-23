@@ -11,6 +11,8 @@
 #include "../Utils/file_utils.h"
 #include "../Utils/trames.h"
 
+#define INITIAL_CAPACITY 32
+#define TIMEOUT_SECONDS 20
 
 ConfigGotham config;
 pthread_t fleck_thread, worker_thread;
@@ -228,80 +230,6 @@ void eliminar_worker_per_id(int id) {
     }
 }
 
-/**
- * Monitoritza els heartbeats dels workers i elimina els que superin el timeout.
- * Aquesta funció s'executa en un thread separat.
- */
-void *monitoritzar_heartbeats_workers(void *arg) {
-    (void)arg;
-    const int TIMEOUT = 20;
-
-    while (1) {
-        time_t ara = time(NULL);
-
-        pthread_mutex_lock(&worker_mutex);
-        for (int i = 0; i < num_workers;) {
-            double diff = difftime(ara, workers[i].last_heartbeat);
-            if (diff > TIMEOUT) {
-                char log_msg[128];
-                snprintf(log_msg, sizeof(log_msg),
-                         "Worker ID %d ha superat el timeout de %ds. Eliminant-lo.",
-                         workers[i].worker_id, TIMEOUT);
-                log_event(log_msg);
-                eliminar_worker_per_id(workers[i].worker_id);
-                // No fem i++ perquè l’array s’ha mogut
-            } else {
-                i++;  // Només incrementem si no s’elimina
-            }
-        }
-        pthread_mutex_unlock(&worker_mutex);
-
-        sleep(5);
-    }
-
-    return NULL;
-}
-
-void *monitoritzar_heartbeats_flecks(void *arg) {
-    (void)arg;
-    const int TIMEOUT = 20;
-
-    while (1) {
-        time_t ara = time(NULL);
-        pthread_mutex_lock(&fleck_mutex);
-        for (int i = 0; i < num_flecks;) {
-            double diff = difftime(ara, flecks[i].last_heartbeat);
-            if (diff > TIMEOUT) {
-                char log_msg[128];
-                snprintf(log_msg, sizeof(log_msg), 
-                        "Fleck '%s' ha superat el timeout de %ds. Eliminant-lo.",
-                        flecks[i].username, TIMEOUT);
-                log_event(log_msg);
-
-                close(flecks[i].base.socket_fd);
-                free(flecks[i].base.ip);
-                free(flecks[i].username);
-
-                for (int j = i; j < num_flecks - 1; j++) {
-                    flecks[j] = flecks[j + 1];
-                }
-                num_flecks--;
-                flecks = realloc(flecks, num_flecks * sizeof(ConfigFleck));
-                if (!flecks && num_flecks > 0) {
-                    log_event("Error real·locant memòria en eliminar Fleck.");
-                }
-                // No incrementem `i` perquè s'han mogut els elements
-            } else {
-                i++;
-            }
-        }
-        pthread_mutex_unlock(&fleck_mutex);
-        sleep(5);
-    }
-    return NULL;
-}
-
-
 
 /**
  * Afegeix un nou worker a la llista i estableix un worker principal si és el primer del seu tipus.
@@ -381,7 +309,8 @@ void *listener_worker(void *arg) {
     (void)arg;
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        perror("socket");
+        write_message(STDERR_FILENO, "[WORKER] Failed to create server socket.\n");
+        log_event("[WORKER] Failed to create server socket.");
         exit(EXIT_FAILURE);
     }
 
@@ -392,28 +321,56 @@ void *listener_worker(void *arg) {
     };
 
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("bind");
+        write_message(STDERR_FILENO, "[WORKER] Failed to bind server socket.\n");
+        log_event("[WORKER] Failed to bind server socket.");
         exit(EXIT_FAILURE);
     }
 
     if (listen(server_fd, 10) < 0) {
-        perror("listen");
+        write_message(STDERR_FILENO, "[WORKER] Failed to listen on server socket.\n");
+        log_event("[WORKER] Failed to listen on server socket.");
         exit(EXIT_FAILURE);
     }
 
-    struct pollfd poll_fds[MAX_WORKERS + 1];
-    int sockets[MAX_WORKERS];
-    memset(sockets, 0, sizeof(sockets));
-    
+    size_t capacity = INITIAL_CAPACITY;
+    struct pollfd *poll_fds = malloc(capacity * sizeof(struct pollfd));
+    time_t *last_activity = malloc(capacity * sizeof(time_t));
+    if (!poll_fds || !last_activity) {
+        write_message(STDERR_FILENO, "[WORKER] Failed to allocate poll structures.\n");
+        log_event("[WORKER] Failed to allocate poll structures.");
+        exit(EXIT_FAILURE);
+    }
+
     poll_fds[0].fd = server_fd;
     poll_fds[0].events = POLLIN;
+    last_activity[0] = time(NULL);
     int nfds = 1;
 
     while (1) {
         int ready = poll(poll_fds, nfds, 5000);
         if (ready < 0) {
-            perror("poll");
+            write_message(STDERR_FILENO, "[WORKER] poll() system call failed.\n");
+            log_event("[WORKER] poll() system call failed.");
             continue;
+        }
+
+        time_t now = time(NULL);
+        for (int i = 1; i < nfds; i++) {
+            if (difftime(now, last_activity[i]) > TIMEOUT_SECONDS) {
+                close(poll_fds[i].fd);
+                pthread_mutex_lock(&worker_mutex);
+                for (int w = 0; w < num_workers; w++) {
+                    if (workers[w].base.socket_fd == poll_fds[i].fd) {
+                        eliminar_worker_per_id(workers[w].worker_id);
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&worker_mutex);
+                poll_fds[i] = poll_fds[nfds - 1];
+                last_activity[i] = last_activity[nfds - 1];
+                nfds--;
+                i--;
+            }
         }
 
         for (int i = 0; i < nfds && ready > 0; i++) {
@@ -422,10 +379,20 @@ void *listener_worker(void *arg) {
 
             if (poll_fds[i].fd == server_fd) {
                 int client_fd = accept(server_fd, NULL, NULL);
-                if (client_fd >= 0 && nfds < MAX_WORKERS + 1) {
+                if (client_fd >= 0) {
+                    if (nfds >= (int)capacity) {
+                        capacity *= 2;
+                        poll_fds = realloc(poll_fds, capacity * sizeof(struct pollfd));
+                        last_activity = realloc(last_activity, capacity * sizeof(time_t));
+                        if (!poll_fds || !last_activity) {
+                            write_message(STDERR_FILENO, "[WORKER] Failed to reallocate poll structures.\n");
+                            log_event("[WORKER] Failed to allocate poll structures.");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
                     poll_fds[nfds].fd = client_fd;
                     poll_fds[nfds].events = POLLIN;
-                    sockets[nfds - 1] = client_fd;
+                    last_activity[nfds] = time(NULL);
                     nfds++;
                 }
                 continue;
@@ -437,11 +404,13 @@ void *listener_worker(void *arg) {
             if (len != sizeof(trama)) {
                 close(client_fd);
                 poll_fds[i] = poll_fds[nfds - 1];
-                sockets[i - 1] = sockets[nfds - 2];
+                last_activity[i] = last_activity[nfds - 1];
                 nfds--;
                 i--;
                 continue;
             }
+
+            last_activity[i] = time(NULL);
 
             if (!validar_trama(&trama)) {
                 respondre_trama_erronia(client_fd, "Worker");
@@ -459,7 +428,7 @@ void *listener_worker(void *arg) {
                     write(client_fd, &resposta, sizeof(resposta));
                     close(client_fd);
                     poll_fds[i] = poll_fds[nfds - 1];
-                    sockets[i - 1] = sockets[nfds - 2];
+                    last_activity[i] = last_activity[nfds - 1];
                     nfds--;
                     i--;
                     continue;
@@ -475,8 +444,8 @@ void *listener_worker(void *arg) {
                     .worker_id = next_worker_id++,
                     .last_heartbeat = time(NULL)
                 };
-
                 afegir_worker(new_worker);
+
             } else if (trama.type == 0x07) {
                 pthread_mutex_lock(&worker_mutex);
                 for (int w = 0; w < num_workers; w++) {
@@ -486,10 +455,9 @@ void *listener_worker(void *arg) {
                     }
                 }
                 pthread_mutex_unlock(&worker_mutex);
-
                 close(client_fd);
                 poll_fds[i] = poll_fds[nfds - 1];
-                sockets[i - 1] = sockets[nfds - 2];
+                last_activity[i] = last_activity[nfds - 1];
                 nfds--;
                 i--;
             } else if (trama.type == 0x12) {
@@ -509,6 +477,8 @@ void *listener_worker(void *arg) {
         }
     }
 
+    free(poll_fds);
+    free(last_activity);
     return NULL;
 }
 
@@ -673,7 +643,8 @@ void *listener_fleck(void *arg) {
     (void)arg;
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        perror("socket");
+        write_message(STDERR_FILENO, "[FLECK] Failed to create server socket.\n");
+        log_event("[FLECK] Failed to create server socket.");
         exit(EXIT_FAILURE);
     }
 
@@ -684,19 +655,22 @@ void *listener_fleck(void *arg) {
     };
 
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("bind");
+        write_message(STDERR_FILENO, "[FLECK] Failed to bind server socket.\n");
+        log_event("[FLECK] Failed to bind server socket.");
         exit(EXIT_FAILURE);
     }
 
     if (listen(server_fd, 10) < 0) {
-        perror("listen");
+        write_message(STDERR_FILENO, "[FLECK] Failed to listen on server socket.\n");
+        log_event("[FLECK] Failed to listen on server socket.");
         exit(EXIT_FAILURE);
     }
 
     size_t capacity = INITIAL_CAPACITY;
     struct pollfd *poll_fds = malloc(capacity * sizeof(struct pollfd));
     if (!poll_fds) {
-        perror("malloc poll_fds");
+        write_message(STDERR_FILENO, "[FLECK] Failed to allocate poll_fds array.\n");
+        log_event("[FLECK] Failed to allocate poll_fds array.");
         exit(EXIT_FAILURE);
     }
 
@@ -707,7 +681,8 @@ void *listener_fleck(void *arg) {
     while (1) {
         int ready = poll(poll_fds, nfds, 5000);
         if (ready < 0) {
-            perror("poll");
+            write_message(STDERR_FILENO, "[FLECK] poll() system call failed.\n");
+            log_event("[FLECK] poll() system call failed.");
             continue;
         }
 
@@ -722,7 +697,8 @@ void *listener_fleck(void *arg) {
                         capacity *= 2;
                         struct pollfd *new_fds = realloc(poll_fds, capacity * sizeof(struct pollfd));
                         if (!new_fds) {
-                            perror("realloc poll_fds");
+                            write_message(STDERR_FILENO, "[FLECK] Failed to reallocate poll_fds array.\n");
+                            log_event("[FLECK] Failed to reallocate poll_fds array.");
                             close(client_fd);
                             continue;
                         }
@@ -841,11 +817,6 @@ int main(int argc, char *argv[]) {
     } else {
         write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut crear el thread listener_worker.\n");
     }
-
-    pthread_t worker_monitor_thread;
-    pthread_t fleck_monitor_thread;
-    pthread_create(&worker_monitor_thread, NULL, monitoritzar_heartbeats_workers, NULL);
-    pthread_create(&fleck_monitor_thread, NULL, monitoritzar_heartbeats_flecks, NULL);
 
 
     pthread_join(fleck_thread, NULL);

@@ -927,12 +927,6 @@ int main(int argc, char *argv[]) {
         write_message(STDOUT_FILENO, "[ERROR] No s'ha pogut crear el thread listener_worker.\n");
     }
 
-
-
-
-    
-
-    
     pthread_t worker_monitor_thread;
     pthread_t fleck_monitor_thread;
     pthread_create(&worker_monitor_thread, NULL, monitoritzar_heartbeats_workers, NULL);

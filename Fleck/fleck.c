@@ -194,7 +194,6 @@ int solicitar_nou_worker(const char *media_type, const char *file_name, char *wo
  */
 int connectar_a_server(const char *ip, int port) {
     int retries = 0;
-    char buffer[256];
     int sock_fd = -1;
 
     while (retries < MAX_RETRIES) {

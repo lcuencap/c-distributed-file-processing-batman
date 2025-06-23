@@ -118,7 +118,7 @@ int inicialitzar_connexio_gotham(ConfigWorker *config) {
 
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd < 0) {
-        write_message(STDERR_FILENO, "Error creant el socket\n");
+        write_message(STDERR_FILENO, "Error connecting to Gotham.\n");
         return -1;
     }
 
@@ -128,28 +128,28 @@ int inicialitzar_connexio_gotham(ConfigWorker *config) {
     inet_pton(AF_INET, config->base.ip, &gotham_addr.sin_addr);
 
     if (connect(socket_fd, (struct sockaddr *)&gotham_addr, sizeof(gotham_addr)) < 0) {
-        write_message(STDERR_FILENO, "Error connectant a Gotham\n");
+        write_message(STDERR_FILENO, "Error connecting to Gotham\n");
         close(socket_fd);
         return -1;
     }
 
     if (write(socket_fd, &trama, sizeof(trama)) != sizeof(trama)) {
-        write_message(STDERR_FILENO, "Error enviant la trama a Gotham\n");
+        write_message(STDERR_FILENO, "Error sending packet to Gotham\n");
         close(socket_fd);
         return -1;
     }
 
     Trama resposta;
     if (read(socket_fd, &resposta, sizeof(resposta)) != sizeof(resposta)) {
-        write_message(STDOUT_FILENO, "Error rebent resposta de Gotham\n");
+        write_message(STDOUT_FILENO, "Could not read Gotham server answer to connection petition.\n");
         close(socket_fd);
         return -1;
     }
 
     if (resposta.type == 0x02 && resposta.data_length == 0) {
-        write_message(STDOUT_FILENO, "Connexió establerta amb Gotham\n");
+        write_message(STDOUT_FILENO, "Connected to Gotham server.\n");
     } else {
-        write_message(STDOUT_FILENO, "Connexió rebutjada per Gotham\n");
+        write_message(STDOUT_FILENO, "Gotham server refused the connection petition.\n");
         close(socket_fd);
         return -1;
     }

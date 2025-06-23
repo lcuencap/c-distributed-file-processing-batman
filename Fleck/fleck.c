@@ -108,9 +108,6 @@ void mark_error_status(const char *file_name) {
  * @param file_name Nom del fitxer a processar.
  */
 void register_new_file(const char *file_name) {
-    char debug_buf[256];
-    snprintf(debug_buf, sizeof(debug_buf), "[DEBUG] Registrada nova distorsió: %s\n", file_name);
-    write_message(STDERR_FILENO, debug_buf);
     pthread_mutex_lock(&status_mutex);
     DistorsioStatus *new_status = malloc(sizeof(DistorsioStatus));
     if (new_status) {
@@ -665,7 +662,6 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
     off_t position = 0; // Posició actual del fitxer
     
     update_progress_status(file_name, ENVIANT, file_size, 0, total_enviat, 0);
-    write_message(STDOUT_FILENO, "[FLECK] Enviant fitxer al Worker comença...\n");
 
 
 
@@ -675,7 +671,6 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
         if (bytes_read <= 0) {
             break;
         }
-        write_message(STDOUT_FILENO, "[DEBUG] Enviant trama 0x05 al Worker amb info del buffer llegit...\n");
         memset(&trama, 0, sizeof(trama));
         trama.type = 0x05;
         trama.data_length = bytes_read;
@@ -743,11 +738,6 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
     
     update_progress_status(file_name, ESPERANT, file_size, 0, total_enviat, 0);
 
-
-
-    write_message(STDOUT_FILENO, "[FLECK] Worker ha rebut correctament el fitxer. (CHECK_OK)\n");
-
-
     close(file_fd);
     return 0;
 }
@@ -778,7 +768,6 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
     // 1. Rebre trama 0x04 amb FileSize & MD5SUM
     while (1) {
         bytes_read = safe_read(worker_fd, &trama, sizeof(trama));
-        //write_message(STDOUT_FILENO, "[DEBUG] Esperant trama 0x04 del Worker...\n");
         if (bytes_read < 0) {
             if (errno == EINTR) {
                 continue;  // Senyal, tornar a intentar
@@ -786,7 +775,6 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
                 time_t now = time(NULL);
                 if (now - last_print >= 10) {
                     last_print = now;
-                    write_message(STDOUT_FILENO, "[DEBUG] Encara esperant trama 0x04 del Worker...\n");
                 }
                 continue;  // Tornar a esperar.
             } else {
@@ -803,7 +791,6 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
         }
 
         if (bytes_read == sizeof(trama)){ 
-            write_message(STDOUT_FILENO, "[DEBUG] Trama 0x04 rebuda del Worker.\n");
             break;
         }  // Correcte, ja tenim la trama 0x04.
         
@@ -857,7 +844,6 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
     // 3. Rebre trames 0x05 fins completar file_size
     while (total_rebut < file_size_rebuda) {
         ssize_t bytes_read = safe_read(worker_fd, &trama, sizeof(trama));
-        write_message(STDOUT_FILENO, "[DEBUG] Esperant trama 0x05 del Worker...\n");
         if (bytes_read != sizeof(trama)) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
 
@@ -890,8 +876,6 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
         update_progress_status(file_name, REBENT, 0, file_size_rebuda, 0, total_rebut);
     }
 
-    write_message(STDOUT_FILENO, "[DEBUG] Fitxer rebut completament del Worker.\n");
-
     close(output_fd);
 
     // 4. Comprovar MD5SUM del fitxer rebut
@@ -906,7 +890,6 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
     Trama resposta_trama;
     if (strncmp(md5sum_calculat, md5sum_expected, MD5SUM_LENGTH) == 0) {
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_OK");
-        write_message(STDOUT_FILENO, "[FLECK] MD5SUM correcte, enviant CHECK_OK al Worker.\n");
         update_progress_status(file_name, FINALITZAT, 0, 0, 0, 0);
     } else {
         inicialitzar_trama(&resposta_trama, 0x06, "CHECK_KO");
@@ -1042,10 +1025,10 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
 
     if (resposta.type == 0x10 && resposta.data_length > 0) {
         if (strcmp(resposta.data, "DISTORT_KO") == 0) {
-            write_message(STDOUT_FILENO, "Error: No hi ha workers disponibles\n");
+            write_message(STDOUT_FILENO, "[ERROR] No hi ha workers disponibles\n");
             return -1;
         } else if (strcmp(resposta.data, "MEDIA_KO") == 0) {
-            write_message(STDOUT_FILENO, "Error: Tipus de media incorrecte\n");
+            write_message(STDOUT_FILENO, "[ERROR] Tipus de media incorrecte\n");
             return -1;
         } else {
             char worker_ip[16];
@@ -1055,7 +1038,6 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
 
             DistorsioArgs *args = malloc(sizeof(DistorsioArgs));
             if (!args) {
-                write_message(STDOUT_FILENO, "Error assignant memòria per gestionar_distorsio_worker.\n");
                 return -1;
             }
 
@@ -1065,7 +1047,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             args->factor = factor;
 
             if (existeix_distorsio_activa(media_type)) {
-                write_message(STDOUT_FILENO, "Ja hi ha una distorsió activa d’aquest tipus.\n");
+                write_message(STDOUT_FILENO, "[ERROR] Ja hi ha una distorsió activa d’aquest tipus.\n");
                 return -1;
             }
 
@@ -1074,7 +1056,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             }
 
             if (gestionar_distorsio_worker(media_type, args->worker_ip, args->worker_port, args->file_name, args->factor) == 0) {
-                write_message(STDOUT_FILENO, "Distorsió completed successfuly\n");
+                write_message(STDOUT_FILENO, "Distorsion completed successfuly\n");
             } else {
                 mark_error_status(file);
                 write_message(STDOUT_FILENO, "Error during distortion :(\n");
@@ -1122,19 +1104,19 @@ void gestionar_comanda_distort(char *command) {
     char *factor_str = strtok(NULL, " ");
     
     if (!file || !factor_str || !isdigit(factor_str[0])) {
-        write_message(STDOUT_FILENO, "ERROR: DISTORT <file.xxx> <factor>\n");
+        write_message(STDOUT_FILENO, "[ERROR] DISTORT <file.xxx> <factor>\n");
         return;
     }
 
     int factor = atoi(factor_str);
     if (factor <= 0) {
-        write_message(STDOUT_FILENO, "ERROR: Factor invalid\n");
+        write_message(STDOUT_FILENO, "[ERROR] Factor invalid\n");
         return;
     }
 
     char *ext = strrchr(file, '.');
     if (!ext) {
-        write_message(STDOUT_FILENO, "ERROR: El fitxer no té extensió\n");
+        write_message(STDOUT_FILENO, "[ERROR] El fitxer no té extensió\n");
         return;
     }
 
@@ -1160,7 +1142,7 @@ void gestionar_comanda_distort(char *command) {
     }
 
     if (!file_type) {
-        write_message(STDOUT_FILENO, "ERROR: Tipus de fitxer no suportat\n");
+        write_message(STDOUT_FILENO, "[ERROR] Tipus de fitxer no suportat\n");
         return;
     }
 

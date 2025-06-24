@@ -37,7 +37,10 @@ void inicialitzar_trama(Trama *trama, char type, const char *data) {
  * @return 1 si la trama és vàlida, 0 altrament.
  */
 int validar_trama(Trama *trama) {
-    if (trama->data_length > sizeof(trama->data)) return 0;
+    if (trama->data_length > sizeof(trama->data)) {
+        write_message(STDERR_FILENO, "Error: data_length exceeds buffer size\n");
+        return 0;
+    }
 
     uint16_t original = trama->checksum;
     trama->checksum = 0;

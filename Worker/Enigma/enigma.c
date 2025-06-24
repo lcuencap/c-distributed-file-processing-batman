@@ -93,9 +93,12 @@ void gestionar_signal_interrupt(int sig) {
  * @param threshold Límite de longitud per aplicar la distorsió.
  * @return 0 si tot va bé, -1 en cas d'error.
  */
-int processar_text(const char *file_name, int threshold) {
-    char tmp_name[256];
-    snprintf(tmp_name, sizeof(tmp_name), "tmp_distorted_%s", file_name);
+int processar_text(const char *file_name, int threshold, char **output_file) {
+    char *base = basename((char *)file_name);
+    size_t tmp_file_len = strlen("tmp_enigma_") + 20 + strlen(base) + 1;
+    char *tmp_name = malloc(tmp_file_len);
+    if (!tmp_name) return -1;
+    snprintf(tmp_name, tmp_file_len, "tmp_enigma_%d_%s", getpid(), base);
 
     int input_fd = open(file_name, O_RDONLY);
     int output_fd = open(tmp_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -125,9 +128,7 @@ int processar_text(const char *file_name, int threshold) {
     close(input_fd);
     close(output_fd);
 
-    if (rename(tmp_name, file_name) < 0) {
-        return -1;
-    }
+    *output_file = tmp_name;
 
     return 0;
 }
@@ -245,10 +246,13 @@ void *handle_task(void *arg) {
 
 
     metadata->status = TASK_PROCESSING;
+
+    char *output_file = NULL;
     
-    if (processar_text(file_name, factor) < 0) {
+    if (processar_text(file_name, factor, &output_file) < 0) {
         write_message(STDERR_FILENO, "[ERROR] Error processing the file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
+        free(output_file);
         return NULL;
     }
 
@@ -259,6 +263,7 @@ void *handle_task(void *arg) {
         pthread_mutex_lock(&threads_mutex);
         active_threads--;
         pthread_mutex_unlock(&threads_mutex);
+        free(output_file);
         return NULL;
     }
 
@@ -266,6 +271,7 @@ void *handle_task(void *arg) {
         write_message(STDERR_FILENO, "Client Fleck disconnection detected.\n");
         finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket,
                                   shared_mem, current_mem_size, &shared_mem_mutex);
+        free(output_file);
         return NULL;
     }
 
@@ -273,10 +279,11 @@ void *handle_task(void *arg) {
 
 
     // Recalcular la mida real del fitxer processat
-    int fd = open(file_name, O_RDONLY);
+    int fd = open(output_file, O_RDONLY);
     if (fd < 0) {
         write_message(STDERR_FILENO, "[ENIGMA] Error opening processed file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
+        free(output_file);
         return NULL;
     }
     uint32_t distorted_file_size;
@@ -285,6 +292,7 @@ void *handle_task(void *arg) {
         close(fd);
         write_message(STDERR_FILENO, "[ERROR] Could not determine distorted files' size.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
+        free(output_file);
         return NULL;  // Error al determinar la mida del fitxer
     }
     distorted_file_size = (uint32_t)size;
@@ -295,9 +303,10 @@ void *handle_task(void *arg) {
     write_message(STDOUT_FILENO, "[HARLEY] Sending distorted file...\n");
 
 
-    if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
+    if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd, output_file) < 0){
         write_message(STDOUT_FILENO, "[ENIGMA] Could not send distorted file :(\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
+        free(output_file);
         return NULL;  // Error enviant el fitxer processat
     }
 
@@ -309,7 +318,8 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&threads_mutex);
     active_threads--;
     pthread_mutex_unlock(&threads_mutex);
-
+    
+    free(output_file);
     
     return NULL;
 }

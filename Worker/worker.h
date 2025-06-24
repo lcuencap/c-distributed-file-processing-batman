@@ -28,7 +28,7 @@ void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_n
                                        void *shared_mem, size_t current_mem_size, pthread_mutex_t *shared_mem_mutex);
 void gestionar_desconnexio_fleck(const char *file_name, int client_socket, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *mutex);
 int enviar_fitxer_processat(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex,
-                             int gotham_socket_fd);
+                             int gotham_socket_fd, char *output_data);
 int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int shared_mem_fd);
 TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, const char *checksum,
                                    void **shared_mem_ptr, size_t *mem_size,

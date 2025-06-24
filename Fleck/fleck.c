@@ -810,11 +810,23 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
     md5sum_expected[MD5SUM_LENGTH - 1] = '\0';
 
     uint32_t file_size_rebuda = strtoul(file_size_str, NULL, 10);
+    // Crear un nom únic per al fitxer distorsionat
+    char *base_name = basename((char *)output_file);
+    size_t output_len = strlen("distorted_") + 20 + strlen(base_name) + 1;
+    char *base_output = malloc(output_len);
+    if (!base_output) {
+        enviar_trama_desconnexio_worker(worker_fd);
+        return ERROR_OUTPUT_FILE;
+    }
+    snprintf(base_output, output_len, "distorted_%d_%s", getpid(), base_name);
+    output_file = base_output;
+
 
     // 2. Obrir fitxer de sortida
     int output_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (output_fd < 0) {
         enviar_trama_desconnexio_worker(worker_fd);
+        free(base_output);
         return ERROR_OUTPUT_FILE;
     }
     update_progress_status(file_name, REBENT, file_size, file_size_rebuda, 0, 0);
@@ -832,16 +844,19 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
                 if (gestionar_caiguda_worker(worker_fd, "REBENT", media_type, file_name, worker_fd, file_size, md5sum, factor) < 0) {
                     write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
                     close(output_fd);
+                    free(base_output);
                     return ERROR_WORKER_DOWN;
                 } else {
                     write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");
                     lseek(output_fd, total_rebut, SEEK_SET);
+                    free(base_output);
                     continue;  
                 }
             }
 
             enviar_trama_desconnexio_worker(worker_fd);
             close(output_fd);
+            free(base_output);
             return ERROR_READ;
         }
 
@@ -850,6 +865,7 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
         if (write(output_fd, trama.data, trama.data_length) != trama.data_length) {
             enviar_trama_desconnexio_worker(worker_fd);
             close(output_fd);
+            free(base_output);
             return ERROR_READ;
         }
 
@@ -863,6 +879,7 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
     char md5sum_calculat[MD5SUM_LENGTH];
     uint32_t dummy_size;
     if (calcular_md5(output_file, md5sum_calculat, &dummy_size) < 0) {
+        free(base_output);
         return ERROR_READ;
     }
 
@@ -880,9 +897,10 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
 
 
     if (write(worker_fd, &resposta_trama, sizeof(resposta_trama)) != sizeof(resposta_trama)) {
+        free(base_output);
         return ERROR_READ;
     }
-
+    free(base_output);
 
     return 0;
 }

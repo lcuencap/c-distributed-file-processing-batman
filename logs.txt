@@ -204,3 +204,22 @@
 [2025-06-24 16:51:20] Fleck ha sol·licitat la desconnexió.
 [2025-06-24 16:52:15] No hi ha cap altre worker per reassignar com a principal.
 [2025-06-24 17:04:10] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 17:04:15] Logger Arkham initialized successfully.
+[2025-06-24 17:04:18] Packet 0x08 sent to the first worker as primary.
+[2025-06-24 17:04:18] Worker ID: 0, Type: 2, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9132, Primary: 1
+[2025-06-24 17:04:21] Worker ID: 2, Type: 2, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9132, Primary: 0
+[2025-06-24 17:04:22] Packet 0x08 sent to the first worker as primary.
+[2025-06-24 17:04:22] Worker ID: 4, Type: 1, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9133, Primary: 1
+[2025-06-24 17:04:26] Worker ID: 6, Type: 1, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9133, Primary: 0
+[2025-06-24 17:04:35] Fleck connected: Laura (Socket:10)
+[2025-06-24 17:04:54] Fleck connected: Laura (Socket:11)
+[2025-06-24 17:06:21] Rejected frame from Worker due to incorrect format or checksum.
+[2025-06-24 17:19:41] SIGINT received. Shutting down Gotham cleanly.
+[2025-06-24 17:20:05] Logger Arkham initialized successfully.
+[2025-06-24 17:20:08] Packet 0x08 sent to the first worker as primary.
+[2025-06-24 17:20:08] Worker ID: 0, Type: 2, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9132, Primary: 1
+[2025-06-24 17:20:10] Worker ID: 2, Type: 2, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9132, Primary: 0
+[2025-06-24 17:20:21] Fleck connected: Laura (Socket:8)
+[2025-06-24 17:20:37] Fleck connected: Laura (Socket:9)
+[2025-06-24 17:29:23] Rejected frame from Worker (socket 6): invalid format or checksum.
+[2025-06-24 17:29:23] Rejected frame from Worker due to incorrect format or checksum.

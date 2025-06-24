@@ -419,6 +419,10 @@ void *listener_worker(void *arg) {
             last_activity[i] = time(NULL);
 
             if (!validar_trama(&trama)) {
+                char debug_msg[256];
+                snprintf(debug_msg, sizeof(debug_msg),
+                         "Rejected frame from Worker (socket %d): invalid format or checksum.", client_fd);
+                log_event(debug_msg);
                 respondre_trama_erronia(client_fd, "Worker");
                 continue;
             }
@@ -738,7 +742,12 @@ void *listener_fleck(void *arg) {
             }
 
             if (!validar_trama(&trama)) {
-                respondre_trama_erronia(client_fd, NULL);
+                // Debug: trama no vàlida rebuda d'un Fleck
+                char debug_msg[256];
+                snprintf(debug_msg, sizeof(debug_msg),
+                         "Rejected frame from Fleck (socket %d): invalid format or checksum.", client_fd);
+                log_event(debug_msg);
+                respondre_trama_erronia(client_fd, "Fleck");
                 continue;
             }
 

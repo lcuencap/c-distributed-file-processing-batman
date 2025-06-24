@@ -209,35 +209,31 @@ int detectar_desconnexio_fleck(int client_socket) {
  * @param shared_mem Punter a la memòria compartida.
  * @param mutex Mutex per a protegir l'accés a la memòria compartida.
  * @param gotham_socket_fd Descriptor del socket connectat a Gotham.
+ * @param output_data file path de l'output file
  */
 
  int enviar_fitxer_processat(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex,
-                             int gotham_socket_fd) {
-    char file_path[512];
+                             int gotham_socket_fd, char *output_data) {
 
-    if (strchr(metadata->file_name, '/')) {
-        strncpy(file_path, metadata->file_name, sizeof(file_path));
-    } else {
-        snprintf(file_path, sizeof(file_path), "%s", metadata->file_name);
+    if (!output_data) {
+        pthread_mutex_lock(mutex);
+        metadata->status = TASK_FAILED;
+        pthread_mutex_unlock(mutex);
+        return -1;
     }
 
-    int file_fd = open(file_path, O_RDONLY);
+    int file_fd = open(output_data, O_RDONLY);
     if (file_fd < 0) {
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
         pthread_mutex_unlock(mutex);
-
-        Trama error_trama;
-        snprintf(error_trama.data, sizeof(error_trama.data), "ERROR_OPEN_PROCESSED");
-        error_trama.type = 0x06;
-        write(gotham_socket_fd, &error_trama, sizeof(error_trama));
         return -1;
     }
 
     // enviar la trama 0x04 amb <FileSize>&<MD5SUM>
     char md5sum[MD5SUM_LENGTH];
     uint32_t distorted_file_size;
-    if (calcular_md5(file_path, md5sum, &distorted_file_size) < 0) {
+    if (calcular_md5(output_data, md5sum, &distorted_file_size) < 0) {
         close(file_fd);
         return -1;
     }
@@ -323,7 +319,7 @@ int detectar_desconnexio_fleck(int client_socket) {
     }
 
     if (strncmp(resposta_trama.data, "CHECK_OK", resposta_trama.data_length) == 0) {
-        unlink(file_path); 
+        unlink(output_data); 
     }
 
 
@@ -395,9 +391,25 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     metadata->status = TASK_RECEIVING;
     pthread_mutex_unlock(mutex);
 
+    char *file_path = malloc(strlen(metadata->file_name) + 1);
+    if (!file_path) {
+        write_message(STDERR_FILENO, "[ERROR] Memory allocation failed for file_path\n");
+        pthread_mutex_lock(mutex);
+        metadata->status = TASK_FAILED;
+        pthread_mutex_unlock(mutex);
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return -1;
+    }
 
-    char file_path[512];
-    snprintf(file_path, sizeof(file_path), "%s", metadata->file_name);
+    strcpy(file_path, metadata->file_name);
+
+    char *msg = malloc(strlen("[INFO] Distortion request received for: ") + strlen(file_path) + 2);
+    if (msg) {
+        snprintf(msg, strlen("[INFO] Distortion request received for: ") + strlen(file_path) + 2,
+                 "[INFO] Distortion request received for: %s\n", file_path);
+        write_message(STDOUT_FILENO, msg);
+        free(msg);
+    }
 
     if (metadata->processed_offset >= metadata->total_size) {
         return 0;  // Si ja s'ha processat completament, no cal rebre fitxer

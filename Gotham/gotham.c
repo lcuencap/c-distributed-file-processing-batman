@@ -70,13 +70,13 @@ void log_event(const char *event) {
 
 void inicialitzar_arkham_logger() {
     if (pipe(log_pipe_fd) == -1) {
-        write_message(STDERR_FILENO, "Error creant la pipe per Arkham\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not create the pipe for Arkham\n");
         exit(EXIT_FAILURE);
     }
 
     pid_t pid = fork();
     if (pid < 0) {
-        write_message(STDERR_FILENO, "Error creating fork for Arkham\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not create fork for Arkham\n");
         exit(EXIT_FAILURE);
     }
 
@@ -85,7 +85,7 @@ void inicialitzar_arkham_logger() {
 
         int log_fd = open("logs.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
         if (log_fd < 0) {
-            write_message(STDERR_FILENO, "Error obrint logs.txt\n");
+            write_message(STDERR_FILENO, "[ERROR] Could not create access logs.txt\n");
             exit(EXIT_FAILURE);
         }
 
@@ -116,9 +116,14 @@ void inicialitzar_arkham_logger() {
 */
 void respondre_trama_erronia(int socket_fd, const char *origen) {
     if (origen) {
-        char log_msg[128];
-        snprintf(log_msg, sizeof(log_msg), "Trama rebutjada de %s per format o checksum incorrecte.", origen);
-        log_event(log_msg);
+        const char *template = "Rejected frame from %s due to incorrect format or checksum.";
+        size_t msg_len = strlen(template) + strlen(origen) + 1;
+        char *log_msg = malloc(msg_len);
+        if (log_msg) {
+            snprintf(log_msg, msg_len, template, origen);
+            log_event(log_msg);
+            free(log_msg);
+        }
     }
 
     Trama resposta;
@@ -147,28 +152,24 @@ ConfigWorker* obtenir_principal(InstanceType tipus_worker) {
  * @return Retorna un punter al nou worker principal, o NULL si no n'hi ha cap candidat.
  */
 ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
-    write_message(STDOUT_FILENO, "🔍 seleccionant nou principal...\n");
+    write_message(STDOUT_FILENO, "Main Worker is down!\n");
+    write_message(STDOUT_FILENO, "🔍 Searching for new main Worker...\n");
 
     int *indexos = malloc(num_workers * sizeof(int));  // en el pitjor cas, tots podrien ser candidats
     if (!indexos) {
-        write_message(STDERR_FILENO, "Error: no s'ha pogut reservar memòria per seleccionar nou principal.\n");
+        write_message(STDERR_FILENO, "[ERROR] could not allocate memory to select new primary worker.\n");
         return NULL;
     }
 
     int pos = 0;
     for (int i = 0; i < num_workers; i++) {
-        char debug[128];
-        snprintf(debug, sizeof(debug), "Worker ID %d, tipus %d, principal: %d\n",
-                workers[i].worker_id, workers[i].base.type, workers[i].is_primary_worker);
-        write_message(STDOUT_FILENO, debug);
-
         if (workers[i].base.type == tipus_worker && !workers[i].is_primary_worker) {
             indexos[pos++] = i;
         }
     }
 
     if (pos == 0) {
-        write_message(STDOUT_FILENO, "[DEBUG] No hi ha candidats per promoure com a principal!\n");
+        write_message(STDOUT_FILENO, "[ERROR] No other candidates to promote to main worker!\n");
         free(indexos);
         return NULL;
     }
@@ -185,7 +186,7 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
 
     char log_msg[128];
     snprintf(log_msg, sizeof(log_msg),
-             "Worker ID %d seleccionat com a nou principal del tipus %d.",
+             "Worker ID %d selected as new primary of type %d.",
              workers[sel].worker_id, tipus_worker);
     log_event(log_msg);
 
@@ -216,14 +217,14 @@ void eliminar_worker_per_id(int id) {
             if (tmp || num_workers == 0) {
                 workers = tmp;
             } else {
-                log_event("Error real·locant memòria en eliminar worker.");
+                log_event("Error reallocating memory when removing worker.");
             } 
 
             // Reassignar si cal
             if (era_principal) {
                 ConfigWorker *nou = seleccionar_nou_principal(tipus_worker);
                 if (!nou) {
-                    log_event("No hi ha cap altre worker per reassignar com a principal.");
+                    log_event("No other worker available to reassign as primary.");
                 }
             }
 
@@ -242,7 +243,7 @@ void afegir_worker(ConfigWorker new_worker) {
 
     // Validar IP Fleck
     if (!new_worker.ip_fleck) {
-        log_event("Error: Worker intentant registrar-se amb IP Fleck NULL.");
+        log_event("Worker trying to register with NULL Fleck IP.");
         pthread_mutex_unlock(&worker_mutex);
         return;
     }
@@ -250,7 +251,7 @@ void afegir_worker(ConfigWorker new_worker) {
     // 1. Redimensionar l’array abans de res
     ConfigWorker *temp = realloc(workers, (num_workers + 1) * sizeof(ConfigWorker));
     if (!temp) {
-        log_event("Error d'allocació de memòria per a un nou worker.");
+        log_event("Memory allocation error for a new worker.");
         pthread_mutex_unlock(&worker_mutex);
         return;
     }
@@ -282,7 +283,7 @@ void afegir_worker(ConfigWorker new_worker) {
         Trama promotora;
         inicialitzar_trama(&promotora, 0x08, "");
         write(new_worker.base.socket_fd, &promotora, sizeof(promotora));
-        log_event("Trama 0x08 enviada al primer worker com a principal.");
+        log_event("Packet 0x08 sent to the first worker as primary.");
     } else {
         workers[num_workers].is_primary_worker = 0;
     }
@@ -290,7 +291,7 @@ void afegir_worker(ConfigWorker new_worker) {
     // 4. Fer el log
     char log_msg[256];
     snprintf(log_msg, sizeof(log_msg), 
-            "Worker ID: %d, Tipus: %d, IP Gotham: %s, IP Fleck: %s, Port Fleck: %d, Principal: %d",
+            "Worker ID: %d, Type: %d, Gotham IP: %s, Fleck IP: %s, Fleck Port: %d, Primary: %d",
             workers[num_workers].worker_id, new_worker.base.type, 
             new_worker.base.ip, new_worker.ip_fleck, new_worker.port_fleck,
             workers[num_workers].is_primary_worker);
@@ -543,7 +544,8 @@ ConfigWorker* buscar_alternatiu_no_principal(InstanceType tipus_worker) {
  */
 int addFleck(ConfigFleck *fleck, int socket, const char *data) {
     if (!data || socket <= 0 || !fleck) {
-        write_message(STDERR_FILENO, "Error: dades, socket o punter fleck no vàlids.\n");
+        write_message(STDERR_FILENO, "Error: invalid data, socket or fleck pointer.\n");
+        log_event("Error: invalid data, socket or fleck pointer in addFleck.");
         return -1;
     }
 
@@ -556,13 +558,15 @@ int addFleck(ConfigFleck *fleck, int socket, const char *data) {
     char *port_str = strtok(NULL, "&");
 
     if (!username || !ip || !port_str) {
-        write_message(STDERR_FILENO, "Error: format de dades de Fleck incorrecte.\n");
+        write_message(STDERR_FILENO, "Error: incorrect Fleck data format.\n");
+        log_event("Error: incorrect Fleck data format in addFleck.");
         return -1;
     }
 
     int port = atoi(port_str);
     if (port <= 0) {
-        write_message(STDERR_FILENO, "Error: port de Fleck invàlid.\n");
+        write_message(STDERR_FILENO, "Error: invalid Fleck port.\n");
+        log_event("Error: invalid Fleck port in addFleck.");
         return -1;
     }
 
@@ -581,7 +585,8 @@ int addFleck(ConfigFleck *fleck, int socket, const char *data) {
     flecks = realloc(flecks, (num_flecks + 1) * sizeof(ConfigFleck));
     if (!flecks) {
         pthread_mutex_unlock(&fleck_mutex);
-        write_message(STDERR_FILENO, "Error reservant memòria per a Fleck.\n");
+        write_message(STDERR_FILENO, "Error allocating memory for Fleck.\n");
+        log_event("Error allocating memory for Fleck in addFleck.");
         return -1;
     }
 
@@ -611,7 +616,7 @@ void construir_data_worker(const ConfigWorker *worker, char *buffer) {
  */
 void cleanup(int sig) {
     (void)sig;
-    log_event("S’ha rebut SIGINT. Tancant Gotham netament.");
+    log_event("SIGINT received. Shutting down Gotham cleanly.");
 
     // Tancar sockets de workers
     pthread_mutex_lock(&worker_mutex);
@@ -636,7 +641,7 @@ void cleanup(int sig) {
     kill(arkham_pid, SIGTERM);
     close(log_pipe_fd[1]);  // Tanca la pipe
 
-    log_event("Tots els recursos s’han alliberat. Adeu.");
+    log_event("All resources have been released. Shutting down.");
     exit(0);
 }
 
@@ -649,7 +654,7 @@ void *listener_fleck(void *arg) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         write_message(STDERR_FILENO, "[FLECK] Failed to create server socket.\n");
-        log_event("[FLECK] Failed to create server socket.");
+        log_event("Failed to create server socket.");
         exit(EXIT_FAILURE);
     }
 
@@ -666,13 +671,13 @@ void *listener_fleck(void *arg) {
 
     if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         write_message(STDERR_FILENO, "[FLECK] Failed to bind server socket.\n");
-        log_event("[FLECK] Failed to bind server socket.");
+        log_event("Failed to bind server socket.");
         exit(EXIT_FAILURE);
     }
 
     if (listen(server_fd, 10) < 0) {
         write_message(STDERR_FILENO, "[FLECK] Failed to listen on server socket.\n");
-        log_event("[FLECK] Failed to listen on server socket.");
+        log_event("Failed to listen on server socket.");
         exit(EXIT_FAILURE);
     }
 
@@ -680,7 +685,7 @@ void *listener_fleck(void *arg) {
     struct pollfd *poll_fds = malloc(capacity * sizeof(struct pollfd));
     if (!poll_fds) {
         write_message(STDERR_FILENO, "[FLECK] Failed to allocate poll_fds array.\n");
-        log_event("[FLECK] Failed to allocate poll_fds array.");
+        log_event("Failed to allocate poll_fds array.");
         exit(EXIT_FAILURE);
     }
 
@@ -692,7 +697,7 @@ void *listener_fleck(void *arg) {
         int ready = poll(poll_fds, nfds, 5000);
         if (ready < 0) {
             write_message(STDERR_FILENO, "[FLECK] poll() system call failed.\n");
-            log_event("[FLECK] poll() system call failed.");
+            log_event("poll() system call failed.");
             continue;
         }
 
@@ -708,7 +713,7 @@ void *listener_fleck(void *arg) {
                         struct pollfd *new_fds = realloc(poll_fds, capacity * sizeof(struct pollfd));
                         if (!new_fds) {
                             write_message(STDERR_FILENO, "[FLECK] Failed to reallocate poll_fds array.\n");
-                            log_event("[FLECK] Failed to reallocate poll_fds array.");
+                            log_event("Failed to reallocate poll_fds array.");
                             close(client_fd);
                             continue;
                         }
@@ -757,14 +762,14 @@ void *listener_fleck(void *arg) {
                 write(client_fd, &resposta_ok, sizeof(resposta_ok));
 
                 char log_msg[256];
-                snprintf(log_msg, sizeof(log_msg), "Fleck connectat: %s (Socket:%d)", newFleck.username, newFleck.base.socket_fd);
+                snprintf(log_msg, sizeof(log_msg), "Fleck connected: %s (Socket:%d)", newFleck.username, newFleck.base.socket_fd);
                 log_event(log_msg);
 
                 char msg[256];
                 snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)\n", newFleck.username);
                 write(STDOUT_FILENO, msg, strlen(msg));
             } else if (trama.type == 0x07) {
-                log_event("Fleck ha sol·licitat la desconnexió.");
+                log_event("Fleck has requested disconnection.");
                 close(client_fd);
                 poll_fds[i] = poll_fds[nfds - 1];
                 nfds--;
@@ -839,20 +844,20 @@ void *listener_fleck(void *arg) {
  */
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        fprintf(stderr, "Us: ./gotham_mini <fitxer_configuracio>\n");
+        write_message(STDERR_FILENO, "Usage: ./gotham <config_file>\n");
         return 1;
     }
 
 
     int fd = open(argv[1], O_RDONLY);
     if (fd < 0 || parse_gotham_config(fd, &config) < 0) {
-        write_message(STDERR_FILENO, "Error en llegir el fitxer de configuració.\n");
+        write_message(STDERR_FILENO, "Error reading the configuration file.\n");
         return 1;
     }
     close(fd);
 
     inicialitzar_arkham_logger();
-    log_event("Logger Arkham inicialitzat correctament.");
+    log_event("Logger Arkham initialized successfully.");
 
 
 

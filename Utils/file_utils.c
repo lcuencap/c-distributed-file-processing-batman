@@ -87,7 +87,7 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
     buffer[bytes_read] = '\0';
     close(pipe_fd[0]);
 
-    int status;
+    int status = 0;
     waitpid(pid, NULL, 0); 
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         write_message(STDOUT_FILENO, "[ERROR] md5sum process exited with error\n");

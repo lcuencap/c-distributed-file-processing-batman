@@ -617,8 +617,12 @@ int main(int argc, char *argv[]) {
 
     if (primer_worker) {
         write_message(STDOUT_FILENO, "[DEBUG] Aquest és el primer worker. Inicialitzant estat de memòria...\n");
-        netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
+        netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);  
+        pthread_mutex_lock(&shared_mem_mutex);
+        (*worker_count)++;  
+        pthread_mutex_unlock(&shared_mem_mutex);
     }
+
 
     pthread_mutex_lock(&shared_mem_mutex);
     volcar_memoria_tasques(shared_mem, current_mem_size);

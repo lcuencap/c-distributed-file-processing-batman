@@ -334,6 +334,78 @@ void *handle_task(void *arg) {
 
 
 /**
+ * @brief Gestiona la recepció de la senyal SIGINT per netejar els recursos del worker.
+ * @param sig Senyal rebut (no s'utilitza, però és necessari per la funció de gestió de senyals).
+ */
+void gestionar_signal_interrupt(int sig) {
+    (void)sig;
+    keep_running = 0;
+   
+    // Enviar desconnexió a Gotham
+    if (config.base.socket_fd > 0) {
+        gestionar_desconnexio_gotham(config.base.socket_fd, "media");
+        close(config.base.socket_fd);
+        config.base.socket_fd = -1;
+    }
+    if (server_fd > 0) {
+        close(server_fd);
+        server_fd = -1;
+    }
+
+    // Decrementar comptador de workers
+    write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
+    if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
+    } else {
+        int *worker_count = (int *)shared_mem;
+        
+        if (*worker_count > 0) (*worker_count)--; 
+
+
+        char count_msg[128];
+        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
+        write_message(STDOUT_FILENO, count_msg);
+
+        if (*worker_count == 0) {
+            write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
+            if (shm_unlink("/harley_shared_mem") < 0) {
+                perror("[ERROR] shm_unlink failed");
+                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
+            }
+        }
+        pthread_mutex_unlock(&shared_mem_mutex);
+    }
+
+    msync(shared_mem, current_mem_size, MS_SYNC);
+    pthread_mutex_lock(&shared_mem_mutex);
+    volcar_memoria_tasques(shared_mem, current_mem_size);
+    pthread_mutex_unlock(&shared_mem_mutex);
+
+
+
+    // Alliberar memòria compartida
+    if (munmap(shared_mem, current_mem_size) < 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
+    }
+
+    if (!pthread_equal(gotham_thread, (pthread_t)0)) {
+        pthread_cancel(gotham_thread);
+        pthread_join(gotham_thread, NULL);
+    }
+
+    if (config.is_primary_worker && !pthread_equal(harley_thread, (pthread_t)0)) {
+        pthread_cancel(harley_thread);
+        pthread_join(harley_thread, NULL);
+    }
+
+
+    // Alliberar memòria de configuració
+    free(config.work_dir);
+
+    exit(0);
+}
+
+/**
  * @brief Escoltar connexions entrants i gestionar la possible desconnexió de Fleck.
  */
 void listener_harley_principal(ConfigWorker *config) {
@@ -344,16 +416,17 @@ void listener_harley_principal(ConfigWorker *config) {
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (server_fd < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections. Aborting...\n");
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections (Socket). Aborting...\n");
+        netejar_connexio_per_error(server_fd, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
+        gestionar_signal_interrupt(SIGINT);
     }
 
     // Configurar el socket per reutilitzar l'adreça
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections. Aborting...\n");
-        close(server_fd);
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections (SetSocket). Aborting...\n");
+        netejar_connexio_per_error(server_fd, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
+        gestionar_signal_interrupt(SIGINT);
     }
     fcntl(server_fd, F_SETFL, O_NONBLOCK);  
 
@@ -364,15 +437,15 @@ void listener_harley_principal(ConfigWorker *config) {
     };
 
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections. Aborting...\n");
-        close(server_fd);
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections (bind). Aborting...\n");
+        netejar_connexio_per_error(server_fd, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
+        gestionar_signal_interrupt(SIGINT);
     }
 
     if (listen(server_fd, 10) < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections. Aborting...\n");
-        close(server_fd);
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "[HARLEY] Can't listen for client connections (listen). Aborting...\n");
+        netejar_connexio_per_error(server_fd, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
+        gestionar_signal_interrupt(SIGINT);
     }
 
     while (keep_running) {
@@ -538,78 +611,6 @@ void *gotham_listener_thread(void *arg) {
 }
 
 /**
- * @brief Gestiona la recepció de la senyal SIGINT per netejar els recursos del worker.
- * @param sig Senyal rebut (no s'utilitza, però és necessari per la funció de gestió de senyals).
- */
-void gestionar_signal_interrupt(int sig) {
-    (void)sig;
-    keep_running = 0;
-   
-    // Enviar desconnexió a Gotham
-    if (config.base.socket_fd > 0) {
-        gestionar_desconnexio_gotham(config.base.socket_fd, "media");
-        close(config.base.socket_fd);
-        config.base.socket_fd = -1;
-    }
-    if (server_fd > 0) {
-        close(server_fd);
-        server_fd = -1;
-    }
-
-    // Decrementar comptador de workers
-    write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
-    if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
-        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
-    } else {
-        int *worker_count = (int *)shared_mem;
-        
-        if (*worker_count > 0) (*worker_count)--; 
-
-
-        char count_msg[128];
-        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
-        write_message(STDOUT_FILENO, count_msg);
-
-        if (*worker_count == 0) {
-            write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
-            if (shm_unlink("/harley_shared_mem") < 0) {
-                perror("[ERROR] shm_unlink failed");
-                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
-            }
-        }
-        pthread_mutex_unlock(&shared_mem_mutex);
-    }
-
-    msync(shared_mem, current_mem_size, MS_SYNC);
-    pthread_mutex_lock(&shared_mem_mutex);
-    volcar_memoria_tasques(shared_mem, current_mem_size);
-    pthread_mutex_unlock(&shared_mem_mutex);
-
-
-
-    // Alliberar memòria compartida
-    if (munmap(shared_mem, current_mem_size) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
-    }
-
-    if (!pthread_equal(gotham_thread, (pthread_t)0)) {
-        pthread_cancel(gotham_thread);
-        pthread_join(gotham_thread, NULL);
-    }
-
-    if (config.is_primary_worker && !pthread_equal(harley_thread, (pthread_t)0)) {
-        pthread_cancel(harley_thread);
-        pthread_join(harley_thread, NULL);
-    }
-
-
-    // Alliberar memòria de configuració
-    free(config.work_dir);
-
-    exit(0);
-}
-
-/**
  * @brief Thread que envia un heartbeat cada 5 segons per indicar que Harley està actiu.
  * @param arg Punter a l'argument (no s'utilitza).
  * @return Retorna NULL quan el thread finalitza.
@@ -674,7 +675,11 @@ int main(int argc, char *argv[]) {
     if (primer_worker) {
         write_message(STDOUT_FILENO, "[DEBUG] Aquest és el primer worker. Inicialitzant estat de memòria...\n");
         netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
+        pthread_mutex_lock(&shared_mem_mutex);
+        (*worker_count)++;  
+        pthread_mutex_unlock(&shared_mem_mutex);
     }
+    
 
     pthread_mutex_lock(&shared_mem_mutex);
     volcar_memoria_tasques(shared_mem, current_mem_size);

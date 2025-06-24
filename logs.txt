@@ -109,3 +109,80 @@
 [2025-06-24 13:34:53] No hi ha cap altre worker per reassignar com a principal.
 [2025-06-24 13:35:09] Worker ID 6 seleccionat com a nou principal del tipus 1.
 [2025-06-24 13:35:18] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 13:40:46] Logger Arkham inicialitzat correctament.
+[2025-06-24 13:40:48] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 13:40:48] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 13:41:03] Worker ID: 2, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 0
+[2025-06-24 13:41:09] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 13:41:09] Worker ID: 4, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 1
+[2025-06-24 13:41:13] Worker ID: 6, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 0
+[2025-06-24 13:41:18] Fleck connectat: Laura (Socket:10)
+[2025-06-24 13:41:54] Fleck connectat: Laura (Socket:11)
+[2025-06-24 13:42:44] Worker ID 2 seleccionat com a nou principal del tipus 2.
+[2025-06-24 13:50:42] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 13:50:48] Worker ID 6 seleccionat com a nou principal del tipus 1.
+[2025-06-24 13:51:13] Fleck ha sol·licitat la desconnexió.
+[2025-06-24 13:51:17] Fleck ha sol·licitat la desconnexió.
+[2025-06-24 13:51:24] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 13:51:28] Logger Arkham inicialitzat correctament.
+[2025-06-24 13:51:30] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 13:51:41] Logger Arkham inicialitzat correctament.
+[2025-06-24 13:51:43] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 13:51:43] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 13:51:46] Worker ID: 2, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 0
+[2025-06-24 13:51:49] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 13:51:49] Worker ID: 4, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 1
+[2025-06-24 13:51:51] Worker ID: 6, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 0
+[2025-06-24 13:52:07] Fleck connectat: Laura (Socket:10)
+[2025-06-24 13:52:22] Fleck connectat: Laura (Socket:11)
+[2025-06-24 13:55:58] Fleck ha sol·licitat la desconnexió.
+[2025-06-24 13:56:00] Fleck ha sol·licitat la desconnexió.
+[2025-06-24 13:56:03] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 13:56:19] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 13:56:23] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 13:59:49] Logger Arkham inicialitzat correctament.
+[2025-06-24 13:59:51] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 13:59:51] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 14:00:00] Worker ID: 2, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 0
+[2025-06-24 14:01:12] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 14:01:15] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 14:01:39] Logger Arkham inicialitzat correctament.
+[2025-06-24 14:01:42] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 14:01:42] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 14:01:45] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 14:01:49] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 14:02:08] Logger Arkham inicialitzat correctament.
+[2025-06-24 14:02:10] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 14:02:10] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 14:02:14] Worker ID: 2, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 0
+[2025-06-24 14:02:17] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 14:02:17] Worker ID: 4, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 1
+[2025-06-24 14:02:20] Worker ID: 6, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 0
+[2025-06-24 14:02:28] Fleck connectat: Laura (Socket:10)
+[2025-06-24 14:02:32] Fleck connectat: Laura (Socket:11)
+[2025-06-24 14:03:41] Worker ID 2 seleccionat com a nou principal del tipus 2.
+[2025-06-24 14:11:07] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 14:11:12] Fleck ha sol·licitat la desconnexió.
+[2025-06-24 14:11:16] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 14:11:34] Logger Arkham inicialitzat correctament.
+[2025-06-24 14:11:37] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 14:11:37] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 14:11:52] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 14:11:57] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 14:19:26] Logger Arkham inicialitzat correctament.
+[2025-06-24 14:19:28] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 14:19:28] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 14:19:37] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 14:19:43] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 14:20:00] Logger Arkham inicialitzat correctament.
+[2025-06-24 14:20:02] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 14:20:02] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 14:20:05] Worker ID: 2, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 0
+[2025-06-24 14:20:08] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 14:20:08] Worker ID: 4, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 1
+[2025-06-24 14:20:11] Worker ID: 6, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 0
+[2025-06-24 14:20:18] Fleck connectat: Laura (Socket:10)
+[2025-06-24 14:20:26] Fleck connectat: Laura (Socket:11)
+[2025-06-24 14:21:11] Worker ID 2 seleccionat com a nou principal del tipus 2.
+[2025-06-24 14:24:15] Worker ID 6 seleccionat com a nou principal del tipus 1.
+[2025-06-24 14:27:56] S’ha rebut SIGINT. Tancant Gotham netament.

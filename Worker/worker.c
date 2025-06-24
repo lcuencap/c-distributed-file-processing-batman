@@ -464,7 +464,6 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         pthread_mutex_lock(mutex);
         metadata->processed_offset += trama.data_length;
         if (metadata->processed_offset >= metadata->total_size) {
-            write_message(STDOUT_FILENO, "Fitxer rebut completament.\n");
             pthread_mutex_unlock(mutex);
             break;
         }

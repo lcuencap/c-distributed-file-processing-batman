@@ -228,3 +228,12 @@
 [2025-06-24 18:04:27] Fleck has requested disconnection.
 [2025-06-24 18:04:30] Fleck has requested disconnection.
 [2025-06-24 18:04:31] SIGINT received. Shutting down Gotham cleanly.
+[2025-06-24 18:07:53] Logger Arkham initialized successfully.
+[2025-06-24 18:07:55] Packet 0x08 sent to the first worker as primary.
+[2025-06-24 18:07:55] Worker ID: 0, Type: 2, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9132, Primary: 1
+[2025-06-24 18:07:59] Worker ID: 2, Type: 2, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9132, Primary: 0
+[2025-06-24 18:08:01] Packet 0x08 sent to the first worker as primary.
+[2025-06-24 18:08:01] Worker ID: 4, Type: 1, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9133, Primary: 1
+[2025-06-24 18:08:03] Worker ID: 6, Type: 1, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9133, Primary: 0
+[2025-06-24 18:08:09] Fleck connected: Laura (Socket:10)
+[2025-06-24 18:08:12] Fleck connected: Laura (Socket:11)

@@ -11,6 +11,33 @@
 #include <sys/wait.h>
 #include <sys/mman.h>
 
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+/**
+ * Mostra l’estat d’un fitxer: accessibilitat i mida en bytes.
+ * @param path Ruta del fitxer.
+ */
+void imprimir_estat_fitxer(const char *path) {
+    // Comprovar si el fitxer és accessible (lectura, escriptura)
+    int accessible_read = access(path, R_OK) == 0;
+    int accessible_write = access(path, W_OK) == 0;
+    
+    // Obtenir mida del fitxer
+    struct stat st;
+    if (stat(path, &st) == 0) {
+        printf("[INFO] Estat del fitxer: %s\n", path);
+        printf("       ├─ Mida (bytes): %ld\n", st.st_size);
+        printf("       ├─ Accessible per lectura: %s\n", accessible_read ? "Sí" : "No");
+        printf("       └─ Accessible per escriptura: %s\n", accessible_write ? "Sí" : "No");
+    } else {
+        perror("[ERROR] No es pot accedir a la informació del fitxer");
+    }
+}
+
+
 /**
  * @brief Expande la memoria compartida para almacenar más tareas.
  * @param shared_mem Puntero a la memoria compartida.
@@ -395,6 +422,9 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         free(msg);
     }
 
+    write_message(STDERR_FILENO, "Estat fitxer abans de fer open a recepcio fitxer.\n");
+    imprimir_estat_fitxer(file_path);
+
     if (metadata->processed_offset >= metadata->total_size) {
         return 0;  // Si ja s'ha processat completament, no cal rebre fitxer
     }
@@ -410,6 +440,8 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         enviar_resposta_connexio_inicial(client_socket, 0);
         return -1;
     }
+    write_message(STDERR_FILENO, "Estat fitxer despres de fer open a recepcio fitxer.\n");
+    imprimir_estat_fitxer(file_path);
 
     if (lseek(file_fd, processed_offset, SEEK_SET) < 0) {
         write_message(STDOUT_FILENO, "[ERROR] Could not position file pointer correctly for writing.\n");
@@ -469,6 +501,9 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     fsync(file_fd);  
     close(file_fd);  
     
+    write_message(STDERR_FILENO, "Estat fitxer despres de fer close a recepcio fitxer.\n");
+    imprimir_estat_fitxer(file_path);
+    
 
 
     if (bytes_read < 0) {
@@ -500,6 +535,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
         pthread_mutex_unlock(mutex);
+        write_message(STDERR_FILENO, "[ERROR] Incorrect MD5 checksum, disconnecting.\n");
         enviar_resposta_md5(client_socket, 0);
         return -1;
     }

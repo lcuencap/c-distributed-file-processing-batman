@@ -29,7 +29,26 @@ static int server_fd = -1;
 
 volatile sig_atomic_t keep_running = 1;
 
-
+/**
+ * Mostra l’estat d’un fitxer: accessibilitat i mida en bytes.
+ * @param path Ruta del fitxer.
+ */
+void imprimir_estat_fitxer(const char *path) {
+    // Comprovar si el fitxer és accessible (lectura, escriptura)
+    int accessible_read = access(path, R_OK) == 0;
+    int accessible_write = access(path, W_OK) == 0;
+    
+    // Obtenir mida del fitxer
+    struct stat st;
+    if (stat(path, &st) == 0) {
+        printf("[INFO] Estat del fitxer: %s\n", path);
+        printf("       ├─ Mida (bytes): %ld\n", st.st_size);
+        printf("       ├─ Accessible per lectura: %s\n", accessible_read ? "Sí" : "No");
+        printf("       └─ Accessible per escriptura: %s\n", accessible_write ? "Sí" : "No");
+    } else {
+        perror("[ERROR] No es pot accedir a la informació del fitxer");
+    }
+}
 
 /**
  * Copia un fitxer origen a destí
@@ -70,6 +89,8 @@ int copiar_fitxer(const char *origen, const char *desti) {
 
 int processar_media(char *file_name, int factor, char **output_file) {
     int result;
+    write_message(STDOUT_FILENO, "[DEBUG] Imprimint l'estat del fitxer abans de processar la media...\n");
+    imprimir_estat_fitxer(file_name);
 
     if (strstr(file_name, ".wav")) {
         result = SO_compressAudio(file_name, factor);
@@ -115,9 +136,15 @@ int processar_media(char *file_name, int factor, char **output_file) {
         }
         return result;
     }
+    write_message(STDOUT_FILENO, "[DEBUG] Imprimint l'estat del fitxer despres de processar la media...\n");
+
+    imprimir_estat_fitxer(file_name);
 
     // Si no hi ha hagut error, simplement retornem el mateix nom de fitxer com a output
     *output_file = strdup(file_name);
+    write_message(STDOUT_FILENO, "[DEBUG] Imprimint l'estat del fitxer usant nou punter output_file de processar_media...\n");
+
+    imprimir_estat_fitxer(*output_file);
     return 0;
 }
 

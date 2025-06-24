@@ -64,3 +64,11 @@
 [2025-06-23 17:30:56] Trama 0x08 enviada al primer worker com a principal.
 [2025-06-23 17:30:56] Worker ID: 4, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 1
 [2025-06-23 17:31:03] Fleck connectat: Laura (Socket:9)
+[2025-06-23 17:47:07] Worker ID 2 seleccionat com a nou principal del tipus 2.
+[2025-06-23 17:47:07] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-23 17:47:07] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 11:50:26] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 11:50:26] Worker ID: 6, Tipus: 1, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9133, Principal: 1
+[2025-06-24 11:50:26] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 11:50:26] Worker ID: 8, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 11:50:26] No hi ha cap altre worker per reassignar com a principal.

@@ -61,38 +61,27 @@ int copiar_fitxer(const char *origen, const char *desti) {
 
 
 /**
- * @brief Processar la compressió de media.
+ * Processa el fitxer amb la llibreri SO_compression
+ * @param file_name Nom del fitxer d'entrada amb els valors a processar.
+ * @param factor Valor enter pel qual es multiplica la mitjana calculada.
+ * @param output_file Punter a una cadena on s'escriurà el nom del fitxer de sortida generat.
+ * @return Retorna 0 si l'operació s'ha realitzat correctament, o un valor negatiu en cas d'error.
  */
-int processar_media(const char *file_name, int factor, char **output_file) {
-    char *base = basename((char *)file_name);
-    size_t tmp_file_len = strlen("tmp_") + 20 + strlen(base) + 1;
-    char *tmp_file = malloc(tmp_file_len);
-    if (!tmp_file) {
-        write_message(STDERR_FILENO, "[ERROR] Memory allocation error for tmp_file.\n");
-        return -1;
-    }
-    snprintf(tmp_file, tmp_file_len, "tmp_%s", base);
 
-    if (copiar_fitxer(file_name, tmp_file) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] Could not duplicate file for safe distorsion.\n");
-        return -1;
-    }
-
-  
+int processar_media(char *file_name, int factor, char **output_file) {
     int result;
 
     if (strstr(file_name, ".wav")) {
-        result = SO_compressAudio(tmp_file, factor);
+        result = SO_compressAudio(file_name, factor);
     } else if (strstr(file_name, ".jpg") || strstr(file_name, ".png")) {
-        result = SO_compressImage(tmp_file, factor);
+        result = SO_compressImage(file_name, factor);
     } else if (strstr(file_name, ".mp3")) {
         write_message(STDERR_FILENO, "[ERROR] .mp3 not supported. Only .wav.\n");
-        result = ERROR_NOT_WAV;
+        return ERROR_NOT_WAV;
     } else {
         write_message(STDERR_FILENO, "[ERROR] Invalid format.\n");
-        result =  ERROR_UNSUPPORTED_FORMAT;
+        return ERROR_UNSUPPORTED_FORMAT;
     }
-
 
     if (result != NO_ERROR) {
         switch (result) {
@@ -124,15 +113,13 @@ int processar_media(const char *file_name, int factor, char **output_file) {
                 break;
             }
         }
-        unlink(tmp_file);
-        free(tmp_file);
         return result;
     }
 
-    *output_file = tmp_file;  // path del fitxer distorsionat
-    return 0;  // Retorna 0 si tot ha anat bé
+    // Si no hi ha hagut error, simplement retornem el mateix nom de fitxer com a output
+    *output_file = strdup(file_name);
+    return 0;
 }
-
 
 /**
  * @brief Envia un heartbeat a Gotham per indicar que el worker segueix actiu.
@@ -257,13 +244,14 @@ void *handle_task(void *arg) {
     char *file_path = malloc(file_path_len);
     if (!file_path) {
         write_message(STDERR_FILENO, "[ERROR] Could not allocate memory for file_path\n");
-        pthread_mutex_lock(mutex);
+        pthread_mutex_lock(&shared_mem_mutex);
         metadata->status = TASK_FAILED;
-        pthread_mutex_unlock(mutex);
+        pthread_mutex_unlock(&shared_mem_mutex);
         enviar_resposta_connexio_inicial(client_socket, 0);
-        return -1;
+        return NULL;
     }
-    snprintf(file_path, file_path_len, "%s_%d", metadata->file_name, getpid());
+
+    snprintf(file_path, file_path_len, "%ld_%s", time(NULL), metadata->file_name);
 
 
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex, file_path) < 0) {

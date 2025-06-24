@@ -239,7 +239,20 @@ void *handle_task(void *arg) {
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
     } 
 
-    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
+    size_t file_path_len = strlen(metadata->file_name) + 20; // espacio para _pid y '\0'
+    char *file_path = malloc(file_path_len);
+    if (!file_path) {
+        write_message(STDERR_FILENO, "[ERROR] Could not allocate memory for file_path\n");
+        pthread_mutex_lock(&shared_mem_mutex);
+        metadata->status = TASK_FAILED;
+        pthread_mutex_unlock(&shared_mem_mutex);
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return NULL;
+    }
+    snprintf(file_path, file_path_len, "%ld_%s", time(NULL), metadata->file_name);
+
+
+    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex, file_path) < 0) {
         write_message(STDERR_FILENO, "[ERROR] Could not recieve the file to distort.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;    

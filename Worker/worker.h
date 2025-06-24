@@ -21,7 +21,7 @@
 
 
 // Funcions generals
-int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex);
+int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex, char *file_path);
 void assegurar_working_directory(char *work_dir, int harley);
 int detectar_desconnexio_fleck(int client_socket);
 void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket,

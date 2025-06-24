@@ -258,7 +258,7 @@ int esperar_resposta_connexio(int worker_fd) {
     if (resposta.type == 0x03 && resposta.data_length == 0) {
         write_message(STDOUT_FILENO, "[OK] Connected to worker.\n");
         return 0;
-    }
+    } 
 
     if (resposta.type == 0x03 && strcmp(resposta.data, "CON_KO") == 0) {
         write_message(STDOUT_FILENO, "[KO] Connection was refused by worker.\n");
@@ -637,6 +637,7 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
 
     int file_fd = open(file_name, O_RDONLY);
     if (file_fd < 0) {
+        write_message(STDOUT_FILENO, "[ERROR] Could not open input file for reading.\n");
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }

@@ -374,12 +374,8 @@ void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_n
  * @brief Gestiona la recepció d'un fitxer, el desa en local i en memòria compartida, augmentant la memòria si cal.
  * @param client_socket Descriptor del socket del client.
  * @param metadata Punter a la metadada de la tasca.
- * @param shared_mem Punter a la memòria compartida.
- * @param shared_mem_fd Descriptor del fitxer de la memòria compartida.
- * @param current_mem_size Punter a la mida actual de la memòria compartida.
  * @param mutex Mutex per a protegir l'accés a la memòria compartida.
- * @param gotham_socket_fd Descriptor del socket connectat a Gotham.
- * @param config_worker Configuració del worker.
+ * @param file_path path del fitxer.
  * @return Retorna 0 si és correcte, -1 en cas d'error.
  */
 int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex, char *file_path) {

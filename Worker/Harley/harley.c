@@ -531,7 +531,9 @@ void *gotham_listener_thread(void *arg) {
                 break;
         }
     }
-    write_message(STDOUT_FILENO, "[HARLEY] Gotham loop finalitzat.\n");
+    if (!keep_running) {
+        write_message(STDOUT_FILENO, "[HARLEY] Gotham has stopped. Waiting for all tasks to finish...\n");
+    }
     return NULL;
 }
 
@@ -544,9 +546,8 @@ void gestionar_signal_interrupt(int sig) {
     keep_running = 0;
    
     // Enviar desconnexió a Gotham
-    gestionar_desconnexio_gotham(config.base.socket_fd, "media");
-
     if (config.base.socket_fd > 0) {
+        gestionar_desconnexio_gotham(config.base.socket_fd, "media");
         close(config.base.socket_fd);
         config.base.socket_fd = -1;
     }
@@ -580,6 +581,10 @@ void gestionar_signal_interrupt(int sig) {
     }
 
     msync(shared_mem, current_mem_size, MS_SYNC);
+    pthread_mutex_lock(&shared_mem_mutex);
+    volcar_memoria_tasques(shared_mem, current_mem_size);
+    pthread_mutex_unlock(&shared_mem_mutex);
+
 
 
     // Alliberar memòria compartida

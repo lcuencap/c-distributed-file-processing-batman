@@ -37,7 +37,7 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
 
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
-        write_message(STDOUT_FILENO, "[ERROR] Could not open file to validate MD5.\n")
+        write_message(STDOUT_FILENO, "[ERROR] Could not open file to validate MD5.\n");
         return -1;
     }
 

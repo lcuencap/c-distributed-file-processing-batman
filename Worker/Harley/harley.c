@@ -544,6 +544,7 @@ void gestionar_signal_interrupt(int sig) {
         if (*worker_count == 0) {
             write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
             if (shm_unlink("/harley_shared_mem") < 0) {
+                perror("[ERROR] shm_unlink failed");
                 write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
             }
         }

@@ -28,6 +28,69 @@ static int server_fd = -1;
 volatile sig_atomic_t keep_running = 1;
 
 
+/**
+ * @brief Gestiona la recepció de la senyal SIGINT per netejar els recursos del worker.
+ * @param sig Senyal rebut (no s'utilitza, però és necessari per la funció de gestió de senyals).
+ */
+void gestionar_signal_interrupt(int sig) {
+    (void)sig;
+    keep_running = 0;
+    
+    // Enviar desconnexió a Gotham
+    if (config.base.socket_fd > 0) {
+        gestionar_desconnexio_gotham(config.base.socket_fd, "text");
+        close(config.base.socket_fd);
+        config.base.socket_fd = -1;
+    }
+    if (server_fd > 0) {
+        close(server_fd);
+        server_fd = -1;
+    }
+
+    // Decrementar comptador de workers
+    if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
+    } else {
+        int *worker_count = (int *)shared_mem;
+        
+        if (*worker_count > 0) (*worker_count)--; 
+
+
+        char count_msg[128];
+        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
+        write_message(STDOUT_FILENO, count_msg);
+
+        if (*worker_count == 0) {
+            if (shm_unlink("/enigma_shared_mem") < 0) {
+                perror("[ERROR] shm_unlink failed");
+            }
+        }
+        pthread_mutex_unlock(&shared_mem_mutex);
+    }
+
+    msync(shared_mem, current_mem_size, MS_SYNC);
+
+    // Alliberar memòria compartida
+    if (munmap(shared_mem, current_mem_size) < 0) {
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
+    }
+
+    if (!pthread_equal(gotham_thread, (pthread_t)0)) {
+        pthread_cancel(gotham_thread);
+        pthread_join(gotham_thread, NULL);
+    }
+
+    if (config.is_primary_worker && !pthread_equal(enigma_thread, (pthread_t)0)) {
+        pthread_cancel(enigma_thread);
+        pthread_join(enigma_thread, NULL);
+    }
+    
+
+    // Alliberar memòria de configuració
+    free(config.work_dir);
+
+    exit(0);
+}
 
 /**
  * @brief Processar el fitxer de text i aplicar la distorsió, sobrescrivint el fitxer original.
@@ -89,7 +152,6 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&threads_mutex);
     active_threads++;
     pthread_mutex_unlock(&threads_mutex);
-    write_message(STDOUT_FILENO, "[ENIGMA] Iniciant gestió de tasca...\n");
 
 
     Trama request_trama;
@@ -113,7 +175,7 @@ void *handle_task(void *arg) {
         return NULL;
     }
 
-    // --------------------------- PROCESSAMENT NORMAL ---------------------------
+    // --------------------------- PROCESSAMENT ---------------------------
     char file_name[256] = {0};
     char file_size_str[12] = {0};
     char received_checksum[MD5SUM_LENGTH] = {0};
@@ -165,12 +227,10 @@ void *handle_task(void *arg) {
     
 
     if (!metadata) {
-        write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
         metadata = alloc_task_metadata(file_name, file_size, received_checksum,
                                         &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
         if (!metadata) {
-            write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar espai per la nova tasca.\n");
-            //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+            write_message(STDERR_FILENO, "[ERROR] Could not alloc memory for task.\n");
             netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
             return NULL;
         }
@@ -180,13 +240,10 @@ void *handle_task(void *arg) {
         metadata->bytes_sent = 0;
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
-    } else {
-        write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
-    }
+    } 
 
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
-        write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        write_message(STDERR_FILENO, "[ERROR] Could not recieve the file to distort.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;    
     }
@@ -195,35 +252,44 @@ void *handle_task(void *arg) {
     metadata->status = TASK_PROCESSING;
     
     if (processar_text(file_name, factor) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] Error processant el fitxer.\n");
+        write_message(STDERR_FILENO, "[ERROR] Error processing the file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
+    if (!keep_running) {
+        write_message(STDERR_FILENO, "[ENIGMA] Gotham is down.\n");
+        free_task_metadata(metadata, &shared_mem_mutex);  
+        close(client_socket);
+        pthread_mutex_lock(&threads_mutex);
+        active_threads--;
+        pthread_mutex_unlock(&threads_mutex);
+        return NULL;
+    }
+
     if (detectar_desconnexio_fleck(client_socket)) {
-        write_message(STDERR_FILENO, "Detectada desconnexió Fleck.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        write_message(STDERR_FILENO, "Client Fleck disconnection detected.\n");
         finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket,
                                   shared_mem, current_mem_size, &shared_mem_mutex);
         return NULL;
     }
 
-    write_message(STDOUT_FILENO, "[ENIGMA] Distorsió finalitzada.\n");
+    write_message(STDOUT_FILENO, "[ENIGMA] Distorsion completed.\n");
 
 
     // Recalcular la mida real del fitxer processat
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
-        write_message(STDERR_FILENO, "[ENIGMA] Error obrint fitxer processat.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        write_message(STDERR_FILENO, "[ENIGMA] Error opening processed file.\n");
+        netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
     uint32_t distorted_file_size;
     off_t size = lseek(fd, 0, SEEK_END);
     if (size == (off_t)-1) {
         close(fd);
-        write_message(STDERR_FILENO, "[ENIGMA] Error al determinar la mida del fitxer processat.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        write_message(STDERR_FILENO, "[ERROR] Could not determine distorted files' size.\n");
+        netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;  // Error al determinar la mida del fitxer
     }
     distorted_file_size = (uint32_t)size;
@@ -231,11 +297,12 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&shared_mem_mutex);
     metadata->total_size = distorted_file_size;
     pthread_mutex_unlock(&shared_mem_mutex);
+    write_message(STDOUT_FILENO, "[HARLEY] Sending distorted file...\n");
 
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
-        write_message(STDERR_FILENO, "[ERROR] Error enviant el fitxer processat al client.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        write_message(STDOUT_FILENO, "[ENIGMA] Could not send distorted file :(\n");
+        netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;  // Error enviant el fitxer processat
     }
 
@@ -264,15 +331,16 @@ void listener_enigma_principal(ConfigWorker *config) {
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (server_fd < 0) {
-        write_message(STDERR_FILENO, "[ENIGMA] Error creant el socket del servidor.\n");
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "[ENIGMA] Can't listen for client connections (Socket). Aborting...\n");
+        netejar_connexio_per_error(server_fd, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
+        gestionar_signal_interrupt(SIGINT);
     }
 
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        write_message(STDERR_FILENO, "[HARLEY] Error en setsockopt(SO_REUSEADDR).\n");
-        close(server_fd);
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "[ENIGMA] Can't listen for client connections (SetSocket). Aborting...\n");
+        netejar_connexio_per_error(server_fd, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
+        gestionar_signal_interrupt(SIGINT);
     }
     fcntl(server_fd, F_SETFL, O_NONBLOCK);  
 
@@ -283,21 +351,16 @@ void listener_enigma_principal(ConfigWorker *config) {
     };
 
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        write_message(STDERR_FILENO, "[ENIGMA] Error en el bind del socket del servidor.\n");
-        close(server_fd);
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "[ENIGMA] Can't listen for client connections (bind). Aborting...\n");
+        netejar_connexio_per_error(server_fd, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
+        gestionar_signal_interrupt(SIGINT);
     }
 
     if (listen(server_fd, 10) < 0) {
-        write_message(STDERR_FILENO, "[ENIGMA] Error en el listen del socket del servidor.\n");
-        close(server_fd);
-        exit(EXIT_FAILURE);
+        write_message(STDERR_FILENO, "[ENIGMA] Can't listen for client connections (listen). Aborting...\n");
+        netejar_connexio_per_error(server_fd, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
+        gestionar_signal_interrupt(SIGINT);
     }
-
-    char info[256];
-    time_t now = time(NULL);
-    strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
-
 
     while (keep_running) {
         if (!keep_running) break;
@@ -312,7 +375,7 @@ void listener_enigma_principal(ConfigWorker *config) {
         int activity = select(server_fd + 1, &readfds, NULL, NULL, &timeout);
 
         if (activity < 0 && errno != EINTR) {
-            write_message(STDERR_FILENO, "[ERROR] select() ha fallat.\n");
+            write_message(STDERR_FILENO, "[ERROR] select()\n");
             break;
         }
 
@@ -330,19 +393,16 @@ void listener_enigma_principal(ConfigWorker *config) {
                     continue;  
                 } else {
                     char dbg[128];
-                    snprintf(dbg, sizeof(dbg), "[ERROR] accept() ha fallat amb errno=%d (%s)\n", errno, strerror(errno));
+                    snprintf(dbg, sizeof(dbg), "[ERROR] accept() errno=%d (%s)\n", errno, strerror(errno));
                     write_message(STDERR_FILENO, dbg);
                     break;
                 }
             }
 
             if (client_socket >= 0) {
-                char dbg_msg[128];
-                write_message(STDOUT_FILENO, dbg_msg);
-
                 int *socket_ptr = malloc(sizeof(int));
                 if (!socket_ptr) {
-                    write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar memòria per al socket_ptr\n");
+                    write_message(STDERR_FILENO, "[ERROR] Memory allocation error handling the task.\n");
                     close(client_socket);
                     continue;
                 }
@@ -351,7 +411,7 @@ void listener_enigma_principal(ConfigWorker *config) {
 
                 pthread_t task_thread;
                 if (pthread_create(&task_thread, NULL, handle_task, socket_ptr) != 0) {
-                    write_message(STDERR_FILENO, "[ERROR] No s'ha pogut crear el thread per a la tasca\n");
+                    write_message(STDERR_FILENO, "[ERROR] Could not create thread for handling the task.\n");
                     close(client_socket);
                     free(socket_ptr);
                     continue;
@@ -364,8 +424,6 @@ void listener_enigma_principal(ConfigWorker *config) {
     }
 
     close(server_fd);
-    write_message(STDOUT_FILENO, "[ENIGMA] Fleck thread finalitzat.\n");
-
 }
 
 /**
@@ -384,7 +442,6 @@ void enviar_heartbeat() {
 }
 
 void *listener_enigma_wrapper(void *arg) {
-    write_message(STDOUT_FILENO, "[ENIGMA] Entrem al wrapper del thread.\n");
     listener_enigma_principal((ConfigWorker *)arg);
     return NULL;
 }
@@ -400,7 +457,7 @@ void *gotham_listener_thread(void *arg) {
         if (!keep_running) break;
         Trama trama;
         if (config->base.socket_fd <= 0) {
-            write_message(STDERR_FILENO, "[ENIGMA] Socket de Gotham no vàlid, intentant reconectar...\n");
+            write_message(STDERR_FILENO, "[ERROR] Could not validate Gothams' connection. Reconnecting...\n");
             reconnectar_gotham(config, keep_running);
             sleep(1);
             continue;
@@ -429,11 +486,11 @@ void *gotham_listener_thread(void *arg) {
             }
         }
         if (bytes_read != sizeof(trama)) {
-            write_message(STDERR_FILENO, "[ENIGMA] Error llegint trama de Gotham.\n");
+            write_message(STDERR_FILENO, "[ERROR] Could not read Gotham's packet.\n");
             if (!keep_running) break;
 
             if (reconnectar_gotham(config, keep_running) < 0) {
-                write_message(STDERR_FILENO, "[ENIGMA] No s'ha pogut reconnectar amb Gotham. Aturant el worker.\n");
+                write_message(STDERR_FILENO, "[ERROR] Could not connect to Gotham. Worker is stopping.\n");
                 keep_running = 0;
                 break;  
             }
@@ -443,30 +500,21 @@ void *gotham_listener_thread(void *arg) {
         switch (trama.type) {
             case 0x02:
                 // Trama de connexió de Gotham
-                write_message(STDOUT_FILENO, "[ENIGMA] Gotham ha confirmat la connexió.\n");
+                write_message(STDOUT_FILENO, "Server Gotham has accepted connection.\n");
                 break;
             case 0x08:
-                char info[256];
-                time_t now = time(NULL);
-                strftime(info, sizeof(info), "[%Y-%m-%d %H:%M:%S]", localtime(&now));
-
-                char msg[512];
-                snprintf(msg, sizeof(msg), "%s Gotham ha enviat una trama de promoció.\n", 
-                        info);
-                write_message(STDOUT_FILENO, msg);
-
                 config->is_primary_worker = 1;
-                write_message(STDOUT_FILENO, "[ENIGMA] Ara sóc el worker principal.\n");
-                write_message(STDOUT_FILENO, "[ENIGMA] Iniciant thread per a Flecks...\n");
+                write_message(STDOUT_FILENO, "Now I am the main worker.\n");
+                write_message(STDOUT_FILENO, "[HARLEY] Listening for Fleck client petitions...\n");
                 pthread_create(&enigma_thread, NULL, listener_enigma_wrapper, config);
                 break;
             case 0x09:
                 // Trama d'error de Gotham
-                write_message(STDERR_FILENO, "[ENIGMA] Gotham ha enviat una trama d'error.\n");
+                write_message(STDERR_FILENO, "Gotham has sent an error packet.\n");
                 break;
             case 0x12:
                 // Heartbeat de Gotham
-                write_message(STDOUT_FILENO, "[ENIGMA] Gotham ha demanat un heartbeat. Responent...\n");
+                write_message(STDOUT_FILENO, "Gotham has asked for a heartbeat. Answering...\n");
                 enviar_heartbeat();
                 break;
             default:
@@ -480,78 +528,12 @@ void *gotham_listener_thread(void *arg) {
                 break;
         }
     }
-    write_message(STDOUT_FILENO, "[ENIGMA] Gotham loop finalitzat.\n");
+    if (!keep_running) {
+        write_message(STDOUT_FILENO, "[ENIGMA] Gotham has stopped. Shutting down...\n");
+    }    
     return NULL;
 }
 
-
-/**
- * @brief Gestiona la recepció de la senyal SIGINT per netejar els recursos del worker.
- * @param sig Senyal rebut (no s'utilitza, però és necessari per la funció de gestió de senyals).
- */
-void gestionar_signal_interrupt(int sig) {
-    (void)sig;
-    keep_running = 0;
-    
-    // Enviar desconnexió a Gotham
-    gestionar_desconnexio_gotham(config.base.socket_fd, "text");
-
-    if (config.base.socket_fd > 0) {
-        close(config.base.socket_fd);
-        config.base.socket_fd = -1;
-    }
-    if (server_fd > 0) {
-        close(server_fd);
-        server_fd = -1;
-    }
-
-    // Decrementar comptador de workers
-    write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
-    if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
-        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
-    } else {
-        int *worker_count = (int *)shared_mem;
-        
-        if (*worker_count > 0) (*worker_count)--; 
-
-
-        char count_msg[128];
-        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
-        write_message(STDOUT_FILENO, count_msg);
-
-        if (*worker_count == 0) {
-            write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
-            if (shm_unlink("/enigma_shared_mem") < 0) {
-                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
-            }
-        }
-        pthread_mutex_unlock(&shared_mem_mutex);
-    }
-
-    msync(shared_mem, current_mem_size, MS_SYNC);
-
-
-    // Alliberar memòria compartida
-    if (munmap(shared_mem, current_mem_size) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer munmap.\n");
-    }
-
-    if (!pthread_equal(gotham_thread, (pthread_t)0)) {
-        pthread_cancel(gotham_thread);
-        pthread_join(gotham_thread, NULL);
-    }
-
-    if (config.is_primary_worker && !pthread_equal(enigma_thread, (pthread_t)0)) {
-        pthread_cancel(enigma_thread);
-        pthread_join(enigma_thread, NULL);
-    }
-    
-
-    // Alliberar memòria de configuració
-    free(config.work_dir);
-
-    exit(0);
-}
 
 /**
  * @brief Thread que envia un heartbeat cada 5 segons per indicar que Harley està actiu.
@@ -561,7 +543,7 @@ void gestionar_signal_interrupt(int sig) {
 void *heartbeat_thread(void *arg) {
     (void)arg;  
     while (keep_running) {
-        sleep(5);  // o cada 10 segons
+        sleep(5);  
         enviar_heartbeat();
     }
     return NULL;
@@ -662,8 +644,6 @@ int main(int argc, char *argv[]) {
     }
 
     gestionar_signal_interrupt(SIGINT);
-
-    write_message(STDOUT_FILENO, "Worker Enigma finalitzat correctament.\n");
         
     return 0;
 }

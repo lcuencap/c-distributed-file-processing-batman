@@ -186,7 +186,7 @@ void *handle_task(void *arg) {
         return NULL;
     }
 
-    // --------------------------- PROCESSAMENT NORMAL ---------------------------
+    // --------------------------- PROCESSAMENT ---------------------------
     char file_name[256] = {0};
     char file_size_str[12] = {0};
     char received_checksum[MD5SUM_LENGTH] = {0};
@@ -264,7 +264,6 @@ void *handle_task(void *arg) {
     
     if (processar_media(file_name, factor) != NO_ERROR) {
         write_message(STDERR_FILENO, "[ERROR] Error processing the file.\n");
-
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
@@ -314,7 +313,7 @@ void *handle_task(void *arg) {
 
 
     if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
-            write_message(STDOUT_FILENO, "[HARLEY] Could not send distorted file :(\n");
+        write_message(STDOUT_FILENO, "[HARLEY] Could not send distorted file :(\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;  // Error enviant el fitxer processat
     }
@@ -353,7 +352,6 @@ void gestionar_signal_interrupt(int sig) {
     }
 
     // Decrementar comptador de workers
-    write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
     if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
         write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
     } else {
@@ -367,21 +365,14 @@ void gestionar_signal_interrupt(int sig) {
         write_message(STDOUT_FILENO, count_msg);
 
         if (*worker_count == 0) {
-            write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
             if (shm_unlink("/harley_shared_mem") < 0) {
                 perror("[ERROR] shm_unlink failed");
-                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
             }
         }
         pthread_mutex_unlock(&shared_mem_mutex);
     }
 
     msync(shared_mem, current_mem_size, MS_SYNC);
-    pthread_mutex_lock(&shared_mem_mutex);
-    volcar_memoria_tasques(shared_mem, current_mem_size);
-    pthread_mutex_unlock(&shared_mem_mutex);
-
-
 
     // Alliberar memòria compartida
     if (munmap(shared_mem, current_mem_size) < 0) {
@@ -488,7 +479,6 @@ void listener_harley_principal(ConfigWorker *config) {
             }
 
             if (client_socket >= 0) {
-
                 int *socket_ptr = malloc(sizeof(int));
                 if (!socket_ptr) {
                     write_message(STDERR_FILENO, "[ERROR] Memory allocation error handling the task.\n");
@@ -513,7 +503,6 @@ void listener_harley_principal(ConfigWorker *config) {
     }
 
     close(server_fd);
-
 }
 
 void *listener_harley_wrapper(void *arg) {
@@ -605,7 +594,7 @@ void *gotham_listener_thread(void *arg) {
         }
     }
     if (!keep_running) {
-        write_message(STDOUT_FILENO, "[HARLEY] Gotham has stopped. Waiting for all tasks to finish...\n");
+        write_message(STDOUT_FILENO, "[HARLEY] Gotham has stopped. Shutting down...\n");
     }
     return NULL;
 }
@@ -618,7 +607,7 @@ void *gotham_listener_thread(void *arg) {
 void *heartbeat_thread(void *arg) {
     (void)arg;  
     while (keep_running) {
-        sleep(5);  // o cada 10 segons
+        sleep(5);  
         enviar_heartbeat();
     }
     return NULL;
@@ -719,8 +708,6 @@ int main(int argc, char *argv[]) {
     }
 
     gestionar_signal_interrupt(SIGINT);
-
-    write_message(STDOUT_FILENO, "Worker Harley finalitzat correctament.\n");
         
     return 0;
 }

@@ -18,7 +18,6 @@ static int shared_mem_fd = -1;
 static void *shared_mem = NULL;
 static size_t current_mem_size = SHARED_MEM_SIZE;
 pthread_mutex_t shared_mem_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_rwlock_t shared_mem_rwlock = PTHREAD_RWLOCK_INITIALIZER;  
 int active_threads = 0;
 pthread_mutex_t threads_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_t gotham_thread = 0;

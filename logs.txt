@@ -13,3 +13,8 @@
 [2025-06-24 20:14:05] No other worker available to reassign as primary.
 [2025-06-24 20:14:12] SIGINT received. Shutting down Gotham cleanly.
 [2025-06-24 20:14:14] SIGINT received. Shutting down Gotham cleanly.
+[2025-06-24 20:23:03] Logger Arkham initialized successfully.
+[2025-06-24 20:23:06] Packet 0x08 sent to the first worker as primary.
+[2025-06-24 20:23:06] Worker ID: 0, Type: 2, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9132, Primary: 1
+[2025-06-24 20:23:10] No other worker available to reassign as primary.
+[2025-06-24 20:23:11] SIGINT received. Shutting down Gotham cleanly.

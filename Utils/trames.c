@@ -45,9 +45,12 @@ int validar_trama(Trama *trama) {
     trama->checksum = original;
 
     if (calculated != original) {
-        char msg[128];
-        snprintf(msg, sizeof(msg), "Checksum no coincideix: calculat=%u, rebut=%u\n", calculated, original);
-        write(STDOUT_FILENO, msg, strlen(msg));
+        char *msg = malloc(128);
+        if (msg) {
+            snprintf(msg, 128, "Checksum mismatch: calculated=%u, received=%u\n", calculated, original);
+            write(STDOUT_FILENO, msg, strlen(msg));
+            free(msg);
+        }
         return 0;
     }
 

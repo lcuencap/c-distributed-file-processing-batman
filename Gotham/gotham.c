@@ -738,9 +738,7 @@ void *listener_fleck(void *arg) {
             }
 
             if (!validar_trama(&trama)) {
-                Trama resposta;
-                inicialitzar_trama(&resposta, 0x09, "");
-                write(client_fd, &resposta, sizeof(resposta));
+                respondre_trama_erronia(client_fd, NULL);
                 continue;
             }
 

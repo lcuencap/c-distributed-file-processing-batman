@@ -400,14 +400,13 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     snprintf(file_path, sizeof(file_path), "%s", metadata->file_name);
 
     if (metadata->processed_offset >= metadata->total_size) {
-        write_message(STDOUT_FILENO, "[HARLEY] Tasca ja completada. Saltant recepció i iniciant compressió...\n");
         return 0;  // Si ja s'ha processat completament, no cal rebre fitxer
     }
 
     int file_fd = open(file_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
     if (file_fd < 0) {
-        write_message(STDERR_FILENO, "Error obrint el fitxer per escriure\n");
+        write_message(STDERR_FILENO, "[ERROR] Opening file for writing\n");
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
         pthread_mutex_unlock(mutex);
@@ -417,7 +416,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     }
 
     if (lseek(file_fd, processed_offset, SEEK_SET) < 0) {
-        write_message(STDERR_FILENO, "Error posicionant el cursor.\n");
+        write_message(STDOUT_FILENO, "[ERROR] Could not position file pointer correctly for writing.\n");
         close(file_fd);
         enviar_resposta_connexio_inicial(client_socket, 0);
         return -1;
@@ -428,34 +427,33 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     pthread_mutex_unlock(mutex);  
 
     if (metadata->processed_offset >= metadata->total_size) {
-        write_message(STDOUT_FILENO, "[HARLEY] Tasca ja completada. Saltant recepció i iniciant compressió...\n");
         return 0;  // Si ja s'ha processat completament, no cal rebre fitxer
     }
 
     while ((bytes_read = read(client_socket, &trama, sizeof(trama))) == sizeof(trama)) {
         if (!validar_trama(&trama)) {
-            write_message(STDERR_FILENO, "Trama invàlida rebuda\n");
+            write_message(STDERR_FILENO, "[ERROR] Invalid frame received\n");
             close(file_fd);
             enviar_resposta_md5(client_socket, 0);
             return -1;
         }
         
         if (trama.type != 0x05) {
-            write_message(STDERR_FILENO, "Trama de tipus incorrecte rebuda\n");
+            write_message(STDERR_FILENO, "[ERROR] Incorrect frame type received\n");
             close(file_fd);
             enviar_resposta_md5(client_socket, 0);
             return -1;
         }
 
         if (trama.data_length > sizeof(trama.data)) {
-            write_message(STDERR_FILENO, "Longitud de dades de trama massa gran\n");
+            write_message(STDERR_FILENO, "[ERROR] Frame data length too large\n");
             close(file_fd);
             enviar_resposta_md5(client_socket, 0);
             return -1;
         }
 
         if (write(file_fd, trama.data, trama.data_length) != trama.data_length) {
-            write_message(STDERR_FILENO, "Error escrivint dades al fitxer\n");
+            write_message(STDERR_FILENO, "[ERROR] Writing data to file\n");
             close(file_fd);
             enviar_resposta_md5(client_socket, 0);
             return -1;
@@ -478,7 +476,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
 
 
     if (bytes_read < 0) {
-        write_message(STDERR_FILENO, "Error llegint dades del socket\n");
+        write_message(STDERR_FILENO, "[ERROR] Error reading data from socket\n");
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
         pthread_mutex_unlock(mutex);
@@ -494,7 +492,7 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     char md5_str[33];
     uint32_t file_size = 0;
     if (calcular_md5(file_path, md5_str, &file_size) < 0) {
-        write_message(STDERR_FILENO, "Error calculant el MD5 del fitxer rebut\n");
+        write_message(STDERR_FILENO, "[ERROR] Error calculating MD5 of received file\n");
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
         pthread_mutex_unlock(mutex);
@@ -535,7 +533,7 @@ TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, con
     }
 
     if (!found) {
-        write_message(STDOUT_FILENO, "No s'ha trobat lloc buit, haurem d'expandit memoria compartida.\n");
+        write_message(STDOUT_FILENO, "[ERROR] No empty slot found, expanding shared memory.\n");
         if (expandir_memoria_compartida(shared_mem_ptr, mem_size, shared_mem_fd) < 0) {
             pthread_mutex_unlock(mutex);
             return NULL;

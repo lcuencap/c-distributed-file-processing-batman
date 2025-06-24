@@ -10,7 +10,6 @@
 #include <sys/mman.h>
 #include <libgen.h>
 #include <pthread.h>
-#include <libgen.h>
 
 // Variables globals
 static ConfigWorker config;
@@ -38,8 +37,9 @@ void gestionar_signal_interrupt(int sig) {
     keep_running = 0;
     
     // Enviar desconnexió a Gotham
+    gestionar_desconnexio_gotham(config.base.socket_fd, "text");
+
     if (config.base.socket_fd > 0) {
-        gestionar_desconnexio_gotham(config.base.socket_fd, "text");
         close(config.base.socket_fd);
         config.base.socket_fd = -1;
     }
@@ -49,22 +49,30 @@ void gestionar_signal_interrupt(int sig) {
     }
 
     // Decrementar comptador de workers
+    write_message(STDOUT_FILENO, "[DEBUG] Decrementant comptador de workers a la memòria compartida...\n");
     if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
-        write_message(STDERR_FILENO, "[ERROR] Could not save info. to backup (mutex_lock_err)\n");
+        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
     } else {
         int *worker_count = (int *)shared_mem;
         
         if (*worker_count > 0) (*worker_count)--; 
 
+
+        char count_msg[128];
+        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
+        write_message(STDOUT_FILENO, count_msg);
+
         if (*worker_count == 0) {
+            write_message(STDOUT_FILENO, "[DEBUG] Últim worker en peu. Alliberant recursos compartits...\n");
             if (shm_unlink("/enigma_shared_mem") < 0) {
-                perror("[ERROR] shm_unlink failed");
+                write_message(STDERR_FILENO, "[ERROR] No s'ha pogut fer unlink de la memòria compartida.\n");
             }
         }
         pthread_mutex_unlock(&shared_mem_mutex);
     }
 
     msync(shared_mem, current_mem_size, MS_SYNC);
+
 
     // Alliberar memòria compartida
     if (munmap(shared_mem, current_mem_size) < 0) {
@@ -94,12 +102,9 @@ void gestionar_signal_interrupt(int sig) {
  * @param threshold Límite de longitud per aplicar la distorsió.
  * @return 0 si tot va bé, -1 en cas d'error.
  */
-int processar_text(const char *file_name, int threshold, char **output_file) {
-    char *base = basename((char *)file_name);
-    size_t tmp_file_len = strlen("tmp_enigma_") + 20 + strlen(base) + 1;
-    char *tmp_name = malloc(tmp_file_len);
-    if (!tmp_name) return -1;
-    snprintf(tmp_name, tmp_file_len, "tmp_enigma_%d_%s", getpid(), base);
+int processar_text(const char *file_name, int threshold) {
+    char tmp_name[256];
+    snprintf(tmp_name, sizeof(tmp_name), "tmp_distorted_%s", file_name);
 
     int input_fd = open(file_name, O_RDONLY);
     int output_fd = open(tmp_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -129,7 +134,9 @@ int processar_text(const char *file_name, int threshold, char **output_file) {
     close(input_fd);
     close(output_fd);
 
-    *output_file = tmp_name;
+    if (rename(tmp_name, file_name) < 0) {
+        return -1;
+    }
 
     return 0;
 }
@@ -149,6 +156,7 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&threads_mutex);
     active_threads++;
     pthread_mutex_unlock(&threads_mutex);
+    write_message(STDOUT_FILENO, "[ENIGMA] Iniciant gestió de tasca...\n");
 
 
     Trama request_trama;
@@ -172,7 +180,7 @@ void *handle_task(void *arg) {
         return NULL;
     }
 
-    // --------------------------- PROCESSAMENT ---------------------------
+    // --------------------------- PROCESSAMENT NORMAL ---------------------------
     char file_name[256] = {0};
     char file_size_str[12] = {0};
     char received_checksum[MD5SUM_LENGTH] = {0};
@@ -224,10 +232,12 @@ void *handle_task(void *arg) {
     
 
     if (!metadata) {
+        write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
         metadata = alloc_task_metadata(file_name, file_size, received_checksum,
                                         &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
         if (!metadata) {
-            write_message(STDERR_FILENO, "[ERROR] Could not alloc memory for task.\n");
+            write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar espai per la nova tasca.\n");
+            //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
             netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
             return NULL;
         }
@@ -237,47 +247,33 @@ void *handle_task(void *arg) {
         metadata->bytes_sent = 0;
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
-    } 
-
-    size_t file_path_len = strlen(metadata->file_name) + 20; // espacio para _pid y '\0'
-    char *file_path = malloc(file_path_len);
-    if (!file_path) {
-        write_message(STDERR_FILENO, "[ERROR] Could not allocate memory for file_path\n");
-        pthread_mutex_lock(&shared_mem_mutex);
-        metadata->status = TASK_FAILED;
-        pthread_mutex_unlock(&shared_mem_mutex);
-        enviar_resposta_connexio_inicial(client_socket, 0);
-        return NULL;
+    } else {
+        write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
     }
-    snprintf(file_path, file_path_len, "%ld_%s", time(NULL), metadata->file_name);
 
-
-    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex, file_path) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] Could not recieve the file to distort.\n");
+    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
+        write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
+        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;    
     }
 
 
     metadata->status = TASK_PROCESSING;
-
-    char *output_file = NULL;
     
-    if (processar_text(file_name, factor, &output_file) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] Error processing the file.\n");
+    if (processar_text(file_name, factor) < 0) {
+        write_message(STDERR_FILENO, "[ERROR] Error processant el fitxer.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
-        free(output_file);
         return NULL;
     }
-
+    
     if (!keep_running) {
-        write_message(STDERR_FILENO, "[ENIGMA] Gotham is down.\n");
+        write_message(STDERR_FILENO, "[HARLEY] Gotham is down.\n");
         free_task_metadata(metadata, &shared_mem_mutex);  
         close(client_socket);
         pthread_mutex_lock(&threads_mutex);
         active_threads--;
         pthread_mutex_unlock(&threads_mutex);
-        free(output_file);
         return NULL;
     }
 
@@ -285,7 +281,6 @@ void *handle_task(void *arg) {
         write_message(STDERR_FILENO, "Client Fleck disconnection detected.\n");
         finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket,
                                   shared_mem, current_mem_size, &shared_mem_mutex);
-        free(output_file);
         return NULL;
     }
 
@@ -293,11 +288,10 @@ void *handle_task(void *arg) {
 
 
     // Recalcular la mida real del fitxer processat
-    int fd = open(output_file, O_RDONLY);
+    int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
         write_message(STDERR_FILENO, "[ENIGMA] Error opening processed file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
-        free(output_file);
         return NULL;
     }
     uint32_t distorted_file_size;
@@ -306,7 +300,6 @@ void *handle_task(void *arg) {
         close(fd);
         write_message(STDERR_FILENO, "[ERROR] Could not determine distorted files' size.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
-        free(output_file);
         return NULL;  // Error al determinar la mida del fitxer
     }
     distorted_file_size = (uint32_t)size;
@@ -317,10 +310,9 @@ void *handle_task(void *arg) {
     write_message(STDOUT_FILENO, "[HARLEY] Sending distorted file...\n");
 
 
-    if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd, output_file) < 0){
+    if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
         write_message(STDOUT_FILENO, "[ENIGMA] Could not send distorted file :(\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
-        free(output_file);
         return NULL;  // Error enviant el fitxer processat
     }
 
@@ -332,8 +324,7 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&threads_mutex);
     active_threads--;
     pthread_mutex_unlock(&threads_mutex);
-    
-    free(output_file);
+
     
     return NULL;
 }
@@ -505,8 +496,9 @@ void *gotham_listener_thread(void *arg) {
             }
         }
         if (bytes_read != sizeof(trama)) {
-            if (!keep_running) break;
             write_message(STDERR_FILENO, "[ERROR] Could not read Gotham's packet.\n");
+            if (!keep_running) break;
+
             if (reconnectar_gotham(config, keep_running) < 0) {
                 write_message(STDERR_FILENO, "[ERROR] Could not connect to Gotham. Worker is stopping.\n");
                 keep_running = 0;
@@ -547,7 +539,7 @@ void *gotham_listener_thread(void *arg) {
         }
     }
     if (!keep_running) {
-        write_message(STDOUT_FILENO, "[ENIGMA] Shutting down...\n");
+        write_message(STDOUT_FILENO, "[ENIGMA] Gotham has stopped. Shutting down...\n");
     }    
     return NULL;
 }
@@ -608,14 +600,30 @@ int main(int argc, char *argv[]) {
     
     //netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
 
+
+    pthread_mutex_lock(&shared_mem_mutex);
+    volcar_memoria_tasques(shared_mem, current_mem_size);
+    pthread_mutex_unlock(&shared_mem_mutex);                                
+
     int *worker_count = (int *)shared_mem;
 
     if (primer_worker) {
+        write_message(STDOUT_FILENO, "[DEBUG] Aquest és el primer worker. Inicialitzant estat de memòria...\n");
         netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);  
         pthread_mutex_lock(&shared_mem_mutex);
         (*worker_count)++;  
         pthread_mutex_unlock(&shared_mem_mutex);
     }
+
+
+    pthread_mutex_lock(&shared_mem_mutex);
+    volcar_memoria_tasques(shared_mem, current_mem_size);
+    pthread_mutex_unlock(&shared_mem_mutex);  
+
+    char dbg[128];
+    snprintf(dbg, sizeof(dbg), "[DEBUG] Nombre actual de workers després d’iniciar: %d\n", *worker_count);
+    write_message(STDOUT_FILENO, dbg);
+
 
     inicialitzar_connexio_gotham(&config);
     int flags = fcntl(config.base.socket_fd, F_GETFL, 0);

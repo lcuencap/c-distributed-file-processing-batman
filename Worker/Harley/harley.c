@@ -9,7 +9,6 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <libgen.h>
-#include <libgen.h>
 #include <pthread.h>
 
 
@@ -29,26 +28,7 @@ static int server_fd = -1;
 
 volatile sig_atomic_t keep_running = 1;
 
-/**
- * Mostra l’estat d’un fitxer: accessibilitat i mida en bytes.
- * @param path Ruta del fitxer.
- */
-void imprimir_estat_fitxer(const char *path) {
-    // Comprovar si el fitxer és accessible (lectura, escriptura)
-    int accessible_read = access(path, R_OK) == 0;
-    int accessible_write = access(path, W_OK) == 0;
-    
-    // Obtenir mida del fitxer
-    struct stat st;
-    if (stat(path, &st) == 0) {
-        printf("[INFO] Estat del fitxer: %s\n", path);
-        printf("       ├─ Mida (bytes): %ld\n", st.st_size);
-        printf("       ├─ Accessible per lectura: %s\n", accessible_read ? "Sí" : "No");
-        printf("       └─ Accessible per escriptura: %s\n", accessible_write ? "Sí" : "No");
-    } else {
-        perror("[ERROR] No es pot accedir a la informació del fitxer");
-    }
-}
+
 
 /**
  * Copia un fitxer origen a destí
@@ -80,29 +60,32 @@ int copiar_fitxer(const char *origen, const char *desti) {
 
 
 /**
- * Processa el fitxer amb la llibreri SO_compression
- * @param file_name Nom del fitxer d'entrada amb els valors a processar.
- * @param factor Valor enter pel qual es multiplica la mitjana calculada.
- * @param output_file Punter a una cadena on s'escriurà el nom del fitxer de sortida generat.
- * @return Retorna 0 si l'operació s'ha realitzat correctament, o un valor negatiu en cas d'error.
+ * @brief Processar la compressió de media.
  */
+int processar_media(const char *file_name, int factor) {
+    char tmp_file[300];
+    snprintf(tmp_file, sizeof(tmp_file), "tmp_%s", basename((char *)file_name));
 
-int processar_media(char *file_name, int factor, char **output_file) {
+    if (copiar_fitxer(file_name, tmp_file) < 0) {
+        write_message(STDERR_FILENO, "[ERROR] Could not duplicate file for safe distorsion.\n");
+        return -1;
+    }
+
+  
     int result;
-    write_message(STDOUT_FILENO, "[DEBUG] Imprimint l'estat del fitxer abans de processar la media...\n");
-    imprimir_estat_fitxer(file_name);
 
     if (strstr(file_name, ".wav")) {
-        result = SO_compressAudio(file_name, factor);
+        result = SO_compressAudio(tmp_file, factor);
     } else if (strstr(file_name, ".jpg") || strstr(file_name, ".png")) {
-        result = SO_compressImage(file_name, factor);
+        result = SO_compressImage(tmp_file, factor);
     } else if (strstr(file_name, ".mp3")) {
         write_message(STDERR_FILENO, "[ERROR] .mp3 not supported. Only .wav.\n");
-        return ERROR_NOT_WAV;
+        result = ERROR_NOT_WAV;
     } else {
         write_message(STDERR_FILENO, "[ERROR] Invalid format.\n");
-        return ERROR_UNSUPPORTED_FORMAT;
+        result =  ERROR_UNSUPPORTED_FORMAT;
     }
+
 
     if (result != NO_ERROR) {
         switch (result) {
@@ -134,19 +117,21 @@ int processar_media(char *file_name, int factor, char **output_file) {
                 break;
             }
         }
+        unlink(tmp_file);
         return result;
     }
-    write_message(STDOUT_FILENO, "[DEBUG] Imprimint l'estat del fitxer despres de processar la media...\n");
 
-    imprimir_estat_fitxer(file_name);
+    // Substituir l’original pel fitxer comprimit
+    if (rename(tmp_file, file_name) < 0) {
+        write_message(STDERR_FILENO, "[ERROR] Something happened trying to save the distorted file.\n");
+        unlink(tmp_file);  // Evitar que quedi penjat
+        return -1;
+    }
 
-    // Si no hi ha hagut error, simplement retornem el mateix nom de fitxer com a output
-    *output_file = strdup(file_name);
-    write_message(STDOUT_FILENO, "[DEBUG] Imprimint l'estat del fitxer usant nou punter output_file de processar_media...\n");
 
-    imprimir_estat_fitxer(*output_file);
-    return 0;
+    return 0;  // Retorna 0 si tot ha anat bé
 }
+
 
 /**
  * @brief Envia un heartbeat a Gotham per indicar que el worker segueix actiu.
@@ -266,24 +251,9 @@ void *handle_task(void *arg) {
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
     } 
-    
-    size_t file_path_len = strlen(metadata->file_name) + 20; // espacio para _pid y '\0'
-    char *file_path = malloc(file_path_len);
-    if (!file_path) {
-        write_message(STDERR_FILENO, "[ERROR] Could not allocate memory for file_path\n");
-        pthread_mutex_lock(&shared_mem_mutex);
-        metadata->status = TASK_FAILED;
-        pthread_mutex_unlock(&shared_mem_mutex);
-        enviar_resposta_connexio_inicial(client_socket, 0);
-        return NULL;
-    }
 
-    snprintf(file_path, file_path_len, "%ld_%s", time(NULL), metadata->file_name);
-
-
-    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex, file_path) < 0) {
+    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
         write_message(STDERR_FILENO, "[ERROR] Could not recieve the file to distort.\n");
-        free(file_path);
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
@@ -291,12 +261,10 @@ void *handle_task(void *arg) {
 
     metadata->status = TASK_PROCESSING;
 
-    char *output_file = NULL;
     
-    if (processar_media(file_path, factor, &output_file) != NO_ERROR) {
+    if (processar_media(file_name, factor) != NO_ERROR) {
         write_message(STDERR_FILENO, "[ERROR] Error processing the file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
-        free(output_file);
         return NULL;
     }
 
@@ -307,7 +275,6 @@ void *handle_task(void *arg) {
         pthread_mutex_lock(&threads_mutex);
         active_threads--;
         pthread_mutex_unlock(&threads_mutex);
-        free(output_file);
         return NULL;
     }
 
@@ -316,7 +283,6 @@ void *handle_task(void *arg) {
         write_message(STDERR_FILENO, "Client Fleck disconnection detected.\n");
         finalitzar_tasca_per_desconnexio(metadata, file_name, client_socket,
                                   shared_mem, current_mem_size, &shared_mem_mutex);
-        free(output_file);
         return NULL;
     }
 
@@ -324,11 +290,10 @@ void *handle_task(void *arg) {
 
 
     // Recalcular la mida real del fitxer processat
-    int fd = open(output_file, O_RDONLY);
+    int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
         write_message(STDERR_FILENO, "[HARLEY] Error opening processed file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
-        free(output_file);
         return NULL;
     }
     uint32_t distorted_file_size;
@@ -337,7 +302,6 @@ void *handle_task(void *arg) {
         close(fd);
         write_message(STDERR_FILENO, "[ERROR] Could not determine distorted files' size.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
-        free(output_file);
         return NULL;  // Error al determinar la mida del fitxer
     }
     distorted_file_size = (uint32_t)size;
@@ -348,10 +312,9 @@ void *handle_task(void *arg) {
     write_message(STDOUT_FILENO, "[HARLEY] Sending distorted file...\n");
 
 
-    if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd, output_file) < 0){
+    if (enviar_fitxer_processat(client_socket, metadata, &shared_mem_mutex, config.base.socket_fd) < 0){
         write_message(STDOUT_FILENO, "[HARLEY] Could not send distorted file :(\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
-        free(output_file);
         return NULL;  // Error enviant el fitxer processat
     }
 
@@ -363,7 +326,7 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&threads_mutex);
     active_threads--;
     pthread_mutex_unlock(&threads_mutex);
-    free(output_file);
+
     
     return NULL;
 }

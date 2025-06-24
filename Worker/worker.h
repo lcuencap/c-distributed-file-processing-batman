@@ -21,14 +21,14 @@
 
 
 // Funcions generals
-int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex, char *file_path);
+int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex);
 void assegurar_working_directory(char *work_dir, int harley);
 int detectar_desconnexio_fleck(int client_socket);
 void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_name, int socket,
                                        void *shared_mem, size_t current_mem_size, pthread_mutex_t *shared_mem_mutex);
 void gestionar_desconnexio_fleck(const char *file_name, int client_socket, void *shared_mem, size_t shared_mem_size, pthread_mutex_t *mutex);
 int enviar_fitxer_processat(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex,
-                             int gotham_socket_fd, char *output_data);
+                             int gotham_socket_fd);
 int expandir_memoria_compartida(void **shared_mem, size_t *current_mem_size, int shared_mem_fd);
 TaskMetadata *alloc_task_metadata(const char *file_name, uint32_t file_size, const char *checksum,
                                    void **shared_mem_ptr, size_t *mem_size,
@@ -48,7 +48,5 @@ void netejar_memoria_tasques(void *shared_mem, size_t mem_size, pthread_mutex_t 
 int inicialitzar_connexio_gotham(ConfigWorker *config);
 void gestionar_desconnexio_gotham(int socket_fd, const char *workerType);
 int reconnectar_gotham(ConfigWorker *config, int keep_running);
-
-void marcar_tasca_com_fallida(TaskMetadata *metadata);
 
 #endif // WORKER_H

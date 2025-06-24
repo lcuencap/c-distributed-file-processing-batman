@@ -71,7 +71,7 @@ int processar_media(const char *file_name, int factor, char **output_file) {
         write_message(STDERR_FILENO, "[ERROR] Memory allocation error for tmp_file.\n");
         return -1;
     }
-    snprintf(tmp_file, tmp_file_len, "tmp_%d_%s", getpid(), base);
+    snprintf(tmp_file, tmp_file_len, "tmp_%s", base);
 
     if (copiar_fitxer(file_name, tmp_file) < 0) {
         write_message(STDERR_FILENO, "[ERROR] Could not duplicate file for safe distorsion.\n");
@@ -252,9 +252,23 @@ void *handle_task(void *arg) {
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
     } 
+    
+    size_t file_path_len = strlen(metadata->file_name) + 20; // espacio para _pid y '\0'
+    char *file_path = malloc(file_path_len);
+    if (!file_path) {
+        write_message(STDERR_FILENO, "[ERROR] Could not allocate memory for file_path\n");
+        pthread_mutex_lock(mutex);
+        metadata->status = TASK_FAILED;
+        pthread_mutex_unlock(mutex);
+        enviar_resposta_connexio_inicial(client_socket, 0);
+        return -1;
+    }
+    snprintf(file_path, file_path_len, "%s_%d", metadata->file_name, getpid());
 
-    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
+
+    if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex, file_path) < 0) {
         write_message(STDERR_FILENO, "[ERROR] Could not recieve the file to distort.\n");
+        free(file_path);
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
@@ -264,7 +278,7 @@ void *handle_task(void *arg) {
 
     char *output_file = NULL;
     
-    if (processar_media(file_name, factor, &output_file) != NO_ERROR) {
+    if (processar_media(file_path, factor, &output_file) != NO_ERROR) {
         write_message(STDERR_FILENO, "[ERROR] Error processing the file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         free(output_file);

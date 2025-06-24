@@ -977,7 +977,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
  */
 int enviar_peticio_distorsio(const char *media_type, const char *file, int factor) { 
     if (!media_type || !file) {
-        write_message(STDOUT_FILENO, "Error: Tipus de media o nom de fitxer no vàlid.\n");
+        write_message(STDOUT_FILENO, "Error: Invalid media type or file name.\n");
         return -1;
     }
 
@@ -988,27 +988,27 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
 
 
     if (write(sock_fd, &trama, sizeof(trama)) != sizeof(trama)) {
-        write_message(STDOUT_FILENO, "Error enviant la petició de distorsió.\n");
+        write_message(STDOUT_FILENO, "Error sending the distortion request.\n");
         return -1;
     }
 
     Trama resposta;
     if (safe_read(sock_fd, &resposta, sizeof(Trama)) < 0) {
-        write_message(STDOUT_FILENO, "Error rebent la resposta de Gotham.\n");
+        write_message(STDOUT_FILENO, "Error receiving response from Gotham.\n");
         return -1;
     }
 
     if (!validar_trama(&resposta)) {
-        write_message(STDOUT_FILENO, "Resposta de Gotham invàlida.\n");
+        write_message(STDOUT_FILENO, "Invalid response from Gotham.\n");
         return -1;
     }
 
     if (resposta.type == 0x10 && resposta.data_length > 0) {
         if (strcmp(resposta.data, "DISTORT_KO") == 0) {
-            write_message(STDOUT_FILENO, "[ERROR] No hi ha workers disponibles\n");
+            write_message(STDOUT_FILENO, "[ERROR] No workers available\n");
             return -1;
         } else if (strcmp(resposta.data, "MEDIA_KO") == 0) {
-            write_message(STDOUT_FILENO, "[ERROR] Tipus de media incorrecte\n");
+            write_message(STDOUT_FILENO, "[ERROR] Invalid media type\n");
             return -1;
         } else {
             char worker_ip[16];
@@ -1027,7 +1027,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
             args->factor = factor;
 
             if (existeix_distorsio_activa(media_type)) {
-                write_message(STDOUT_FILENO, "[ERROR] Ja hi ha una distorsió activa d’aquest tipus.\n");
+                write_message(STDOUT_FILENO, "[ERROR] There is already an active distortion of this type.\n");
                 return -1;
             }
 
@@ -1046,7 +1046,7 @@ int enviar_peticio_distorsio(const char *media_type, const char *file, int facto
         }
     }
 
-    write_message(STDOUT_FILENO, "Resposta inesperada de Gotham\n");
+    write_message(STDOUT_FILENO, "Unexpected response from Gotham\n");
     return -1;
 }
 
@@ -1069,7 +1069,7 @@ void netejar_distorsions_acabades() {
         }
     }
     pthread_mutex_unlock(&status_mutex);
-    write_message(STDOUT_FILENO, "Distorsions acabades eliminades\n");
+    write_message(STDOUT_FILENO, "Finished distortions removed\n");
 }
 
 
@@ -1090,13 +1090,13 @@ void gestionar_comanda_distort(char *command) {
 
     int factor = atoi(factor_str);
     if (factor <= 0) {
-        write_message(STDOUT_FILENO, "[ERROR] Factor invalid\n");
+        write_message(STDOUT_FILENO, "[ERROR] Invalid factor\n");
         return;
     }
 
     char *ext = strrchr(file, '.');
     if (!ext) {
-        write_message(STDOUT_FILENO, "[ERROR] El fitxer no té extensió\n");
+        write_message(STDOUT_FILENO, "[ERROR] The file does not have an extension\n");
         return;
     }
 
@@ -1122,7 +1122,7 @@ void gestionar_comanda_distort(char *command) {
     }
 
     if (!file_type) {
-        write_message(STDOUT_FILENO, "[ERROR] Tipus de fitxer no suportat\n");
+        write_message(STDOUT_FILENO, "[ERROR] Unsupported file type\n");
         return;
     }
 
@@ -1195,11 +1195,11 @@ void gestionar_comandes_fleck() {
             }
             char *cmd_copy = strdup(command);
             if (!cmd_copy) {
-                write_message(STDOUT_FILENO, "Error assignant memòria per la comanda\n");
+                write_message(STDOUT_FILENO, "Error allocating memory for the command\n");
             } else {
                 pthread_t tid;
                 if (pthread_create(&tid, NULL, gestionar_comanda_distort_thread, cmd_copy) != 0) {
-                    write_message(STDOUT_FILENO, "Error creant el thread per la comanda DISTORT\n");
+                    write_message(STDOUT_FILENO, "Error creating thread for the DISTORT command\n");
                     free(cmd_copy);
                 } else {
                     pthread_detach(tid);

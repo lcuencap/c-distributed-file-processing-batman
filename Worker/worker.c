@@ -382,7 +382,7 @@ void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_n
  * @param config_worker Configuració del worker.
  * @return Retorna 0 si és correcte, -1 en cas d'error.
  */
-int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex) {
+int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex, char *file_path) {
     Trama trama;
     ssize_t bytes_read;
 
@@ -390,18 +390,6 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     uint32_t processed_offset = metadata->processed_offset;
     metadata->status = TASK_RECEIVING;
     pthread_mutex_unlock(mutex);
-
-    char *file_path = malloc(strlen(metadata->file_name) + 1);
-    if (!file_path) {
-        write_message(STDERR_FILENO, "[ERROR] Memory allocation failed for file_path\n");
-        pthread_mutex_lock(mutex);
-        metadata->status = TASK_FAILED;
-        pthread_mutex_unlock(mutex);
-        enviar_resposta_connexio_inicial(client_socket, 0);
-        return -1;
-    }
-
-    strcpy(file_path, metadata->file_name);
 
     char *msg = malloc(strlen("[INFO] Distortion request received for: ") + strlen(file_path) + 2);
     if (msg) {

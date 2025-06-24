@@ -317,7 +317,7 @@ void *listener_worker(void *arg) {
 
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    
+
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
         .sin_addr.s_addr = inet_addr(config.worker_ip),
@@ -760,7 +760,7 @@ void *listener_fleck(void *arg) {
                 log_event(log_msg);
 
                 char msg[256];
-                snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)", newFleck.username);
+                snprintf(msg, sizeof(msg), "%s connected to Mr. J System. Let the chaos begin!:)\n", newFleck.username);
                 write(STDOUT_FILENO, msg, strlen(msg));
             } else if (trama.type == 0x07) {
                 log_event("Fleck ha sol·licitat la desconnexió.");

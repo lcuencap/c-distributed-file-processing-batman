@@ -31,17 +31,19 @@ void write_message(int fd, const char *message) {
  */
 int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
     if (!file_name || !md5sum || !file_size) {
-        write_message(STDOUT_FILENO, "Error: Paràmetres invàlids a calcular_md5\n");
+        write_message(STDOUT_FILENO, "[ERROR] Invalid parameters to calculate MD5\n");
         return -1;
     }
 
     int fd = open(file_name, O_RDONLY);
     if (fd < 0) {
+        write_message(STDOUT_FILENO, "[ERROR] Could not open file to validate MD5.\n")
         return -1;
     }
 
     off_t size = lseek(fd, 0, SEEK_END);
     if (size == (off_t)-1) {
+        write_message(STDOUT_FILENO, "[ERROR] Could not determine file size with lseek.\n");
         close(fd);
         return -1;
     }
@@ -50,11 +52,13 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
 
     int pipe_fd[2];
     if (pipe(pipe_fd) < 0) {
+        write_message(STDOUT_FILENO, "[ERROR] Could not create pipe for MD5 calculation.\n");
         return -1;
     }
 
     pid_t pid = fork();
     if (pid < 0) {
+        write_message(STDOUT_FILENO, "[ERROR] Could not fork process for MD5 calculation.\n");
         close(pipe_fd[0]);
         close(pipe_fd[1]);
         return -1;
@@ -64,6 +68,7 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
         close(pipe_fd[0]);
         dup2(pipe_fd[1], STDOUT_FILENO);
         close(pipe_fd[1]);
+        write_message(STDOUT_FILENO, "[ERROR] Could not exec md5sum for MD5 calculation.\n");
 
         execlp("md5sum", "md5sum", file_name, NULL);
         _exit(1);
@@ -73,6 +78,7 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
     char buffer[256];
     ssize_t bytes_read = read(pipe_fd[0], buffer, sizeof(buffer) - 1);
     if (bytes_read <= 0) {
+        write_message(STDOUT_FILENO, "[ERROR] Could not read MD5 output from pipe.\n");
         close(pipe_fd[0]);
         return -1;
     }
@@ -96,7 +102,7 @@ ssize_t safe_read(int socket, void *buffer, size_t length) {
             if (errno == EINTR) {
                 continue;  // Senyal, tornar a intentar
             } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                write_message(STDERR_FILENO, "[ERROR] Timeout llegint del socket (EAGAIN)\n");
+                write_message(STDERR_FILENO, "[ERROR] Timeout reading from socket (EAGAIN)\n");
                 return -1;
             } else {
                 return -1;
@@ -105,7 +111,7 @@ ssize_t safe_read(int socket, void *buffer, size_t length) {
         
         if (bytes_read == 0) {
             // EOF, el client ha tancat la connexió
-            write_message(STDERR_FILENO, "[INFO] Client ha tancat la connexió (EOF)\n");
+            write_message(STDERR_FILENO, "[INFO] Client has closed connexion (EOF)\n");
             return -1;
         }
         

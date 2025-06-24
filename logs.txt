@@ -237,3 +237,8 @@
 [2025-06-24 18:08:03] Worker ID: 6, Type: 1, Gotham IP: 127.0.0.1, Fleck IP: 127.0.0.1, Fleck Port: 9133, Primary: 0
 [2025-06-24 18:08:09] Fleck connected: Laura (Socket:10)
 [2025-06-24 18:08:12] Fleck connected: Laura (Socket:11)
+[2025-06-24 18:19:28] Fleck has requested disconnection.
+[2025-06-24 18:19:29] Fleck has requested disconnection.
+[2025-06-24 18:19:34] No other worker available to reassign as primary.
+[2025-06-24 18:19:37] No other worker available to reassign as primary.
+[2025-06-24 18:19:40] SIGINT received. Shutting down Gotham cleanly.

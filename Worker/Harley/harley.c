@@ -360,10 +360,6 @@ void gestionar_signal_interrupt(int sig) {
         if (*worker_count > 0) (*worker_count)--; 
 
 
-        char count_msg[128];
-        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
-        write_message(STDOUT_FILENO, count_msg);
-
         if (*worker_count == 0) {
             if (shm_unlink("/harley_shared_mem") < 0) {
                 perror("[ERROR] shm_unlink failed");
@@ -662,7 +658,6 @@ int main(int argc, char *argv[]) {
     int *worker_count = (int *)shared_mem;
 
     if (primer_worker) {
-        write_message(STDOUT_FILENO, "[DEBUG] Aquest és el primer worker. Inicialitzant estat de memòria...\n");
         netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
         pthread_mutex_lock(&shared_mem_mutex);
         (*worker_count)++;  
@@ -673,10 +668,6 @@ int main(int argc, char *argv[]) {
     pthread_mutex_lock(&shared_mem_mutex);
     volcar_memoria_tasques(shared_mem, current_mem_size);
     pthread_mutex_unlock(&shared_mem_mutex);  
-
-    char dbg[128];
-    snprintf(dbg, sizeof(dbg), "[DEBUG] Nombre actual de workers després d’iniciar: %d\n", *worker_count);
-    write_message(STDOUT_FILENO, dbg);
 
 
     inicialitzar_connexio_gotham(&config);

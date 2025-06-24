@@ -623,11 +623,12 @@ int inicialitzar_memoria_compartida(const char *shm_name, int *shared_mem_fd, vo
     return primer_worker;  
 
 }
-/**
+
+
+/*
  * @brief Volca el contingut de la memòria compartida a la sortida estàndard.
  * @param shared_mem Punter a la memòria compartida.
  * @param mem_size Mida total de la memòria compartida.
- */
 void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
     write_message(STDOUT_FILENO, "\n================== DUMP DE MEMÒRIA COMPARTIDA ==================\n");
     
@@ -663,25 +664,8 @@ void volcar_memoria_tasques(void *shared_mem, size_t mem_size) {
 
     write_message(STDOUT_FILENO, "==============================================================\n\n");
 }
+*/
 
-/**
- * @brief Mostra l'estat d'un fitxer a la sortida estàndard.
- * @param nom Nom del fitxer a mostrar.
- */
-void mostrar_estat_fitxer(const char *nom) {
-    struct stat st;
-    if (stat(nom, &st) == 0) {
-        char dbg[512];
-        snprintf(dbg, sizeof(dbg),
-            "[DEBUG][FITXER] '%s' -> mida: %ld bytes, permisos: %o\n",
-            nom, st.st_size, st.st_mode & 0777);
-        write_message(STDOUT_FILENO, dbg);
-    } else {
-        char err[256];
-        snprintf(err, sizeof(err), "[DEBUG][FITXER] '%s' NO accessible (%s)\n", nom, strerror(errno));
-        write_message(STDERR_FILENO, err);
-    }
-}
 
 /**
  * Elimina totes les tasques de la memòria compartida (reseteig complet).
@@ -770,7 +754,7 @@ void assegurar_working_directory(char *work_dir, int harley) {
     size_t path_len = strlen("Worker/") + strlen(harley ? "Harley" : "Enigma") + strlen(work_dir) + 1;
     char *full_path = malloc(path_len);
     if (!full_path) {
-        write_message(STDERR_FILENO, "Error: No es pot reservar memòria per al path\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not validate worker directory.\n");
         return;
     }
     snprintf(full_path, path_len, "Worker/%s%s", harley ? "Harley" : "Enigma", work_dir);
@@ -778,27 +762,14 @@ void assegurar_working_directory(char *work_dir, int harley) {
     // Comprovar si el directori existeix
     if (stat(full_path, &st) == -1) {
         if (errno == ENOENT) { // No existeix
-            size_t msg_len = strlen("[WARN] Directori inexistent: ") + strlen(full_path) + 2;
+            size_t msg_len = strlen("[WARN] Non-existing directory: ") + strlen(full_path) + 2;
             char *msg = malloc(msg_len);
-            if (!msg) {
-                write_message(STDERR_FILENO, "Error: No es pot reservar memòria per al missatge\n");
-            } else {
-                snprintf(msg, msg_len, "[WARN] Directori inexistent: %s\n", full_path);
+            if (msg) {
+                snprintf(msg, msg_len, "[WARN] Worker directory not found: %s\n", full_path);
                 write_message(STDOUT_FILENO, msg);
-                free(msg);
-            }
+                free(msg);            } 
         } 
-    } else {
-        size_t msg_len = strlen("[INFO] Directori trobat: ") + strlen(full_path) + 2;
-        char *msg = malloc(msg_len);
-        if (!msg) {
-            write_message(STDERR_FILENO, "Error: No es pot reservar memòria per al missatge\n");
-        } else {
-            snprintf(msg, msg_len, "[INFO] Directori trobat: %s\n", full_path);
-            write_message(STDOUT_FILENO, msg);
-            free(msg);
-        }
-    }
+    } 
 
     free(full_path);
 }

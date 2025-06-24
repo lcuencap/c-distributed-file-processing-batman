@@ -49,16 +49,11 @@ void gestionar_signal_interrupt(int sig) {
 
     // Decrementar comptador de workers
     if (pthread_mutex_lock(&shared_mem_mutex) != 0) {
-        write_message(STDERR_FILENO, "[ERROR] No s'ha pogut bloquejar el mutex de memòria compartida.\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not save info. to backup (mutex_lock_err)\n");
     } else {
         int *worker_count = (int *)shared_mem;
         
         if (*worker_count > 0) (*worker_count)--; 
-
-
-        char count_msg[128];
-        snprintf(count_msg, sizeof(count_msg), "[DEBUG] Nombre actual de workers: %d\n", *worker_count);
-        write_message(STDOUT_FILENO, count_msg);
 
         if (*worker_count == 0) {
             if (shm_unlink("/enigma_shared_mem") < 0) {
@@ -590,30 +585,14 @@ int main(int argc, char *argv[]) {
     
     //netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
 
-
-    pthread_mutex_lock(&shared_mem_mutex);
-    volcar_memoria_tasques(shared_mem, current_mem_size);
-    pthread_mutex_unlock(&shared_mem_mutex);                                
-
     int *worker_count = (int *)shared_mem;
 
     if (primer_worker) {
-        write_message(STDOUT_FILENO, "[DEBUG] Aquest és el primer worker. Inicialitzant estat de memòria...\n");
         netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);  
         pthread_mutex_lock(&shared_mem_mutex);
         (*worker_count)++;  
         pthread_mutex_unlock(&shared_mem_mutex);
     }
-
-
-    pthread_mutex_lock(&shared_mem_mutex);
-    volcar_memoria_tasques(shared_mem, current_mem_size);
-    pthread_mutex_unlock(&shared_mem_mutex);  
-
-    char dbg[128];
-    snprintf(dbg, sizeof(dbg), "[DEBUG] Nombre actual de workers després d’iniciar: %d\n", *worker_count);
-    write_message(STDOUT_FILENO, dbg);
-
 
     inicialitzar_connexio_gotham(&config);
     int flags = fcntl(config.base.socket_fd, F_GETFL, 0);

@@ -186,3 +186,8 @@
 [2025-06-24 14:21:11] Worker ID 2 seleccionat com a nou principal del tipus 2.
 [2025-06-24 14:24:15] Worker ID 6 seleccionat com a nou principal del tipus 1.
 [2025-06-24 14:27:56] S’ha rebut SIGINT. Tancant Gotham netament.
+[2025-06-24 16:26:15] Logger Arkham inicialitzat correctament.
+[2025-06-24 16:26:18] Trama 0x08 enviada al primer worker com a principal.
+[2025-06-24 16:26:18] Worker ID: 0, Tipus: 2, IP Gotham: 127.0.0.1, IP Fleck: 127.0.0.1, Port Fleck: 9132, Principal: 1
+[2025-06-24 16:32:10] No hi ha cap altre worker per reassignar com a principal.
+[2025-06-24 16:32:19] S’ha rebut SIGINT. Tancant Gotham netament.

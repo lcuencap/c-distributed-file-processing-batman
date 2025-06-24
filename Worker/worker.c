@@ -725,19 +725,7 @@ TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, co
     }
 
     pthread_mutex_unlock(mutex);
-
-    if (found_metadata) {
-        char msg[256];
-        snprintf(msg, sizeof(msg),
-                "[BUSCAR] Tasca trobada: %s | estat=%d | offset=%u",
-                found_metadata->file_name, found_metadata->status, found_metadata->processed_offset);
-        write_message(STDOUT_FILENO, msg);
-    } else {
-        char msg[128];
-        snprintf(msg, sizeof(msg), "[ERROR] No s'ha trobat cap tasca amb nom: %s", file_name);
-        write_message(STDOUT_FILENO, msg);
-    }
-
+    
     return found_metadata;
 }
 

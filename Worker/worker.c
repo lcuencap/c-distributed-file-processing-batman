@@ -209,20 +209,11 @@ int detectar_desconnexio_fleck(int client_socket) {
  * @param shared_mem Punter a la memòria compartida.
  * @param mutex Mutex per a protegir l'accés a la memòria compartida.
  * @param gotham_socket_fd Descriptor del socket connectat a Gotham.
- * @param output_data file path de l'output file
  */
 
  int enviar_fitxer_processat(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex,
-                             int gotham_socket_fd, char *output_data) {
-
-    if (!output_data) {
-        pthread_mutex_lock(mutex);
-        metadata->status = TASK_FAILED;
-        pthread_mutex_unlock(mutex);
-        return -1;
-    }
-
-    int file_fd = open(output_data, O_RDONLY);
+                             int gotham_socket_fd) {
+    int file_fd = open(metadata->file_name, O_RDONLY);
     if (file_fd < 0) {
         pthread_mutex_lock(mutex);
         metadata->status = TASK_FAILED;
@@ -233,7 +224,7 @@ int detectar_desconnexio_fleck(int client_socket) {
     // enviar la trama 0x04 amb <FileSize>&<MD5SUM>
     char md5sum[MD5SUM_LENGTH];
     uint32_t distorted_file_size;
-    if (calcular_md5(output_data, md5sum, &distorted_file_size) < 0) {
+    if (calcular_md5(metadata->file_name, md5sum, &distorted_file_size) < 0) {
         close(file_fd);
         return -1;
     }
@@ -318,11 +309,6 @@ int detectar_desconnexio_fleck(int client_socket) {
         return -1;
     }
 
-    if (strncmp(resposta_trama.data, "CHECK_OK", resposta_trama.data_length) == 0) {
-        unlink(output_data); 
-    }
-
-
     return 0;
 }
 
@@ -375,7 +361,7 @@ void finalitzar_tasca_per_desconnexio(TaskMetadata *metadata, const char *file_n
  * @param client_socket Descriptor del socket del client.
  * @param metadata Punter a la metadada de la tasca.
  * @param mutex Mutex per a protegir l'accés a la memòria compartida.
- * @param file_path path del fitxer.
+ * @param metadata->file_name path del fitxer.
  * @return Retorna 0 si és correcte, -1 en cas d'error.
  */
 int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread_mutex_t *mutex) {
@@ -387,10 +373,10 @@ int gestionar_recepcio_fitxer(int client_socket, TaskMetadata *metadata, pthread
     metadata->status = TASK_RECEIVING;
     pthread_mutex_unlock(mutex);
 
-    char *msg = malloc(strlen("[INFO] Distortion request received for: ") + strlen(file_path) + 2);
+    char *msg = malloc(strlen("[INFO] Distortion request received for: ") + strlen(metadata->file_name) + 2);
     if (msg) {
-        snprintf(msg, strlen("[INFO] Distortion request received for: ") + strlen(file_path) + 2,
-                 "[INFO] Distortion request received for: %s\n", file_path);
+        snprintf(msg, strlen("[INFO] Distortion request received for: ") + strlen(metadata->file_name) + 2,
+                 "[INFO] Distortion request received for: %s\n", metadata->file_name);
         write_message(STDOUT_FILENO, msg);
         free(msg);
     }

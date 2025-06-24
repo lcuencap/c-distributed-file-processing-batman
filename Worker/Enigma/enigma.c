@@ -156,25 +156,25 @@ void *handle_task(void *arg) {
     pthread_mutex_lock(&threads_mutex);
     active_threads++;
     pthread_mutex_unlock(&threads_mutex);
-    write_message(STDOUT_FILENO, "[ENIGMA] Iniciant gestió de tasca...\n");
 
 
     Trama request_trama;
     if (safe_read(client_socket, &request_trama, sizeof(Trama)) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] No es pot llegir la trama completa de 256 bytes\n");
+        write_message(STDERR_FILENO, "[ERROR] Could not read complete packet.\n");
         enviar_resposta_connexio_inicial(client_socket, 0);
         netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
     if (request_trama.data_length > sizeof(request_trama.data)) {
-        write_message(STDERR_FILENO, "[ERROR] Data_length massa gran, descartant trama\n");
+        write_message(STDERR_FILENO, "[ERROR] Data length too great. Discarding packet. \n");
         enviar_resposta_connexio_inicial(client_socket, 0);
         netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
 
     if (request_trama.type != 0x03) {
+        write_message(STDERR_FILENO, "[ERROR] Recieved an incorrect packet type petition. \n Disconnecting from client.");
         enviar_resposta_connexio_inicial(client_socket, 0);
         netejar_connexio_per_error(client_socket, NULL, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
@@ -232,12 +232,10 @@ void *handle_task(void *arg) {
     
 
     if (!metadata) {
-        write_message(STDOUT_FILENO, "Tasca no existent, creant nova tasca.\n");
         metadata = alloc_task_metadata(file_name, file_size, received_checksum,
                                         &shared_mem, &current_mem_size, shared_mem_fd, &shared_mem_mutex);
         if (!metadata) {
-            write_message(STDERR_FILENO, "[ERROR] No s'ha pogut reservar espai per la nova tasca.\n");
-            //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+            write_message(STDERR_FILENO, "[ERROR] Could not alloc memory for task.\n");
             netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
             return NULL;
         }
@@ -247,13 +245,10 @@ void *handle_task(void *arg) {
         metadata->bytes_sent = 0;
         metadata->status = TASK_RECEIVING;
         strncpy(metadata->checksum, received_checksum, MD5SUM_LENGTH);
-    } else {
-        write_message(STDOUT_FILENO, "Reprenent tasca existent.\n");
-    }
+    } 
 
     if (gestionar_recepcio_fitxer(client_socket, metadata, &shared_mem_mutex) < 0) {
-        write_message(STDERR_FILENO, "Error rebent el fitxer.\n");
-        //GESTIONAR ERROR (NETEJAR MEMORIA, actualitzar estat de la tasca, etc.)
+        write_message(STDERR_FILENO, "[ERROR] Could not recieve the file to distort.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;    
     }
@@ -262,13 +257,13 @@ void *handle_task(void *arg) {
     metadata->status = TASK_PROCESSING;
     
     if (processar_text(file_name, factor) < 0) {
-        write_message(STDERR_FILENO, "[ERROR] Error processant el fitxer.\n");
+        write_message(STDERR_FILENO, "[ERROR] Error processing the file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);
         return NULL;
     }
     
     if (!keep_running) {
-        write_message(STDERR_FILENO, "[HARLEY] Gotham is down.\n");
+        write_message(STDERR_FILENO, "[ENIGMA] Gotham is down.\n");
         free_task_metadata(metadata, &shared_mem_mutex);  
         close(client_socket);
         pthread_mutex_lock(&threads_mutex);
@@ -316,6 +311,7 @@ void *handle_task(void *arg) {
         return NULL;  // Error enviant el fitxer processat
     }
 
+    unlink(metadata->file_name);
 
     free_task_metadata(metadata, &shared_mem_mutex);  
 
@@ -402,9 +398,6 @@ void listener_enigma_principal(ConfigWorker *config) {
                     usleep(100000); // Evitar bucle de CPU 100%
                     continue;  
                 } else {
-                    char dbg[128];
-                    snprintf(dbg, sizeof(dbg), "[ERROR] accept() errno=%d (%s)\n", errno, strerror(errno));
-                    write_message(STDERR_FILENO, dbg);
                     break;
                 }
             }
@@ -539,7 +532,7 @@ void *gotham_listener_thread(void *arg) {
         }
     }
     if (!keep_running) {
-        write_message(STDOUT_FILENO, "[ENIGMA] Gotham has stopped. Shutting down...\n");
+        write_message(STDOUT_FILENO, "[ENIGMA] Shutting down...\n");
     }    
     return NULL;
 }
@@ -598,12 +591,7 @@ int main(int argc, char *argv[]) {
     int primer_worker = inicialitzar_memoria_compartida("/enigma_shared_mem", &shared_mem_fd, &shared_mem, 
                                     current_mem_size, &shared_mem_mutex); 
     
-    //netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);
-
-
-    pthread_mutex_lock(&shared_mem_mutex);
-    volcar_memoria_tasques(shared_mem, current_mem_size);
-    pthread_mutex_unlock(&shared_mem_mutex);                                
+    //netejar_memoria_tasques(shared_mem, current_mem_size, &shared_mem_mutex);                             
 
     int *worker_count = (int *)shared_mem;
 
@@ -614,15 +602,6 @@ int main(int argc, char *argv[]) {
         (*worker_count)++;  
         pthread_mutex_unlock(&shared_mem_mutex);
     }
-
-
-    pthread_mutex_lock(&shared_mem_mutex);
-    volcar_memoria_tasques(shared_mem, current_mem_size);
-    pthread_mutex_unlock(&shared_mem_mutex);  
-
-    char dbg[128];
-    snprintf(dbg, sizeof(dbg), "[DEBUG] Nombre actual de workers després d’iniciar: %d\n", *worker_count);
-    write_message(STDOUT_FILENO, dbg);
 
 
     inicialitzar_connexio_gotham(&config);

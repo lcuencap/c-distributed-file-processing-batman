@@ -318,6 +318,8 @@ void *handle_task(void *arg) {
         return NULL;  // Error enviant el fitxer processat
     }
 
+    unlink(metadata->file_name);
+
 
     free_task_metadata(metadata, &shared_mem_mutex);  
 
@@ -467,9 +469,6 @@ void listener_harley_principal(ConfigWorker *config) {
                     usleep(100000); // Evitar bucle de CPU 100%
                     continue;  
                 } else {
-                    char dbg[128];
-                    snprintf(dbg, sizeof(dbg), "[ERROR] accept() errno=%d (%s)\n", errno, strerror(errno));
-                    write_message(STDERR_FILENO, dbg);
                     break;
                 }
             }

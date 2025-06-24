@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <sys/wait.h>
 #include <errno.h>
 #include "file_utils.h"
 #include "sys_params.h"
@@ -84,7 +85,7 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
         return -1;
     }
     buffer[bytes_read] = '\0';
-    close(pipe_fd[0]);Ç
+    close(pipe_fd[0]);
 
     waitpid(pid, NULL, 0); 
 

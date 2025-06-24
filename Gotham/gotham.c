@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <netinet/in.h>
+#include <sys/wait.h>
 #include <poll.h>
 #include <arpa/inet.h>
 #include <stdio.h>

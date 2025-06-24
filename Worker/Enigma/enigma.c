@@ -481,9 +481,8 @@ void *gotham_listener_thread(void *arg) {
             }
         }
         if (bytes_read != sizeof(trama)) {
-            write_message(STDERR_FILENO, "[ERROR] Could not read Gotham's packet.\n");
             if (!keep_running) break;
-
+            write_message(STDERR_FILENO, "[ERROR] Could not read Gotham's packet.\n");
             if (reconnectar_gotham(config, keep_running) < 0) {
                 write_message(STDERR_FILENO, "[ERROR] Could not connect to Gotham. Worker is stopping.\n");
                 keep_running = 0;
@@ -524,7 +523,7 @@ void *gotham_listener_thread(void *arg) {
         }
     }
     if (!keep_running) {
-        write_message(STDOUT_FILENO, "[ENIGMA] Gotham has stopped. Shutting down...\n");
+        write_message(STDOUT_FILENO, "[ENIGMA] Shutting down...\n");
     }    
     return NULL;
 }

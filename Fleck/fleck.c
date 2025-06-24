@@ -1192,7 +1192,8 @@ void gestionar_comandes_fleck() {
             gestionar_comanda_list(extensions, 1);
         } else if (strncasecmp(command, "DISTORT", 7) == 0) {
             if (!connected_to_gotham) {
-                write_message(STDOUT_FILENO, "No estas connectat a Gotham\n");
+                write_message(STDOUT_FILENO, "[ERROR] You must connect to the Gotham server first.\n");
+                write_message(STDOUT_FILENO, "Use the CONNECT command to establish a connection.\n");
                 continue;
             }
             char *cmd_copy = strdup(command);

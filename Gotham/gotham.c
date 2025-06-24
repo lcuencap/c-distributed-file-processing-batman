@@ -808,7 +808,7 @@ void *listener_fleck(void *arg) {
                 pthread_mutex_lock(&fleck_mutex);
                 for (int f = 0; f < num_flecks; f++) {
                     if (flecks[f].base.socket_fd == client_fd) {
-                        eliminar_worker_per_id(flecks[f].fleck_id);
+                        eliminar_fleck_per_id(flecks[f].fleck_id);
                         break;
                     }
                 }

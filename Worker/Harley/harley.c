@@ -88,7 +88,35 @@ int processar_media(const char *file_name, int factor) {
 
 
     if (result != NO_ERROR) {
-        write_message(STDERR_FILENO, "[ERROR] Could not distort media.\n");
+        switch (result) {
+            case ERROR_DECODING_IMAGE:
+                write_message(STDERR_FILENO, "[CODE] ERROR_DECODING_IMAGE: The image could not be read.\n");
+                break;
+            case ERROR_SCALING_FACTOR:
+                write_message(STDERR_FILENO, "[CODE] ERROR_SCALING_FACTOR: The scaling factor is too large for the image.\n");
+                break;
+            case ERROR_MEM_ALLOC:
+                write_message(STDERR_FILENO, "[CODE] ERROR_MEM_ALLOC: Memory allocation error.\n");
+                break;
+            case ERROR_CREATING_TMP_FILE:
+                write_message(STDERR_FILENO, "[CODE] ERROR_CREATING_TMP_FILE: Error creating the temporary file.\n");
+                break;
+            case ERROR_UNSUPPORTED_FORMAT:
+                write_message(STDERR_FILENO, "[CODE] ERROR_UNSUPPORTED_FORMAT: Unsupported image format.\n");
+                break;
+            case ERROR_CREATING_FINAL_FILE:
+                write_message(STDERR_FILENO, "[CODE] ERROR_CREATING_FINAL_FILE: Error creating the final file.\n");
+                break;
+            case ERROR_NOT_WAV:
+                write_message(STDERR_FILENO, "[CODE] ERROR_NOT_WAV: Only WAV files are supported.\n");
+                break;
+            default: {
+                char msg[128];
+                snprintf(msg, sizeof(msg), "[CODE] Unknown error code: %d\n", result);
+                write_message(STDERR_FILENO, msg);
+                break;
+            }
+        }
         unlink(tmp_file);
         return result;
     }

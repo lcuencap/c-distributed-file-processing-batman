@@ -75,7 +75,7 @@ void inicialitzar_arkham_logger() {
 
     pid_t pid = fork();
     if (pid < 0) {
-        write_message(STDERR_FILENO, "Error en fork per Arkham\n");
+        write_message(STDERR_FILENO, "Error creating fork for Arkham\n");
         exit(EXIT_FAILURE);
     }
 

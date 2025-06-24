@@ -80,14 +80,17 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
     if (bytes_read <= 0) {
         write_message(STDOUT_FILENO, "[ERROR] Could not read MD5 output from pipe.\n");
         close(pipe_fd[0]);
+        waitpid(pid, NULL, 0); 
         return -1;
     }
     buffer[bytes_read] = '\0';
-    close(pipe_fd[0]);
+    close(pipe_fd[0]);Ç
+
+    waitpid(pid, NULL, 0); 
 
     strncpy(md5sum, buffer, 32);
     md5sum[32] = '\0';
-
+    
     return 0;
 }
 

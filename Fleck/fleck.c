@@ -383,8 +383,6 @@ void enviar_trama_desconnexio_worker(int worker_fd) {
         } else if (worker_fd == enigma_fd) {
             enigma_fd = -1;
         }
-
-        write_message(STDOUT_FILENO, "Desconnectat correctament del worker.\n");
     }
 }
 
@@ -632,7 +630,7 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
     
     
     if (validar_connexio_distort_worker(worker_fd, file_name, file_size, md5sum, factor) != 0) {
-        write_message(STDOUT_FILENO, "[FLECK] Error establint connexió amb el Worker.\n");
+        write_message(STDOUT_FILENO, "[ERROR] Could not establish connection with worker.\n");
         return -1;
     }
 
@@ -642,7 +640,6 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
-    write_message(STDOUT_FILENO, "[FLECK] Fitxer obert correctament per enviar al Worker.\n");
     char buffer[245];
     ssize_t bytes_read;
     off_t position = 0; // Posició actual del fitxer
@@ -667,19 +664,19 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
     
     
         if (write(worker_fd, &trama, sizeof(Trama)) < 0) {
-            write_message(STDOUT_FILENO, "[FLECK] Error enviant la trama al Worker.\n");
+            write_message(STDOUT_FILENO, "[ERROR] Error sending file information packet to gotham.\n");
             if (errno == ECONNRESET || errno == EPIPE) {
-                write_message(STDOUT_FILENO, "[FLECK] Worker desconnectat inesperadament.\n");
+                write_message(STDOUT_FILENO, "[ERROR] Worker disconnected unexpectedly.\n");
                 if (gestionar_caiguda_worker(worker_fd, "ENVIANT", media_type, file_name, file_fd, file_size, md5sum, factor) < 0) {
-                    write_message(STDOUT_FILENO, "[FLECK] Error gestionant la caiguda del Worker.\n");
+                    write_message(STDOUT_FILENO, "[ERROR] Could not reconnect to new worker. Aborting.\n");
                     return ERROR_WORKER_DOWN;
                 } else {
-                    write_message(STDOUT_FILENO, "[FLECK] Reconnectat al nou Worker. Continuant recepció...\n");
+                    write_message(STDOUT_FILENO, "[ERROR] Reconnected to new Worker. Continuing process...\n");
                 }
                 lseek(file_fd, position, SEEK_SET); // Continuar des d'on ens havíem quedat
                 continue;
             } else {
-                write_message(STDOUT_FILENO, "[FLECK] Error desconegut, enviant la trama de desconnexio al Worker.\n");
+                write_message(STDOUT_FILENO, "[ERROR] Unknown. Disconnecting from Worker.\n");
                 close(file_fd);
                 enviar_trama_desconnexio_worker(worker_fd);
                 return -1;
@@ -696,17 +693,15 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
     timeout.tv_usec = 0;
     setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    write_message(STDOUT_FILENO, "[FLECK] Fitxer enviat al Worker. Esperant confirmació...\n");
-
     Trama resposta_md5;
     if (safe_read(worker_fd, &resposta_md5, sizeof(Trama)) < 0) {
-        write_message(STDOUT_FILENO, "[FLECK] Error llegint confirmació del Worker.\n");
+        write_message(STDOUT_FILENO, "[ERROR] Could not read Worker reception confirmation. Disconnecting.\n");
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
 
     if (!validar_trama(&resposta_md5)) {
-        write_message(STDOUT_FILENO, "[FLECK] Trama de confirmació no vàlida.\n");
+        write_message(STDOUT_FILENO, "[ERROR] Invalid answer from Worker. Disconnecting.\n");
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
@@ -717,7 +712,7 @@ int enviar_fitxer_worker(int worker_fd, const char *media_type, const char *file
     } 
 
     if (resposta_md5.data_length != 8 || strncmp(resposta_md5.data, "CHECK_OK", 8) != 0) {
-        write_message(STDOUT_FILENO, "[FLECK] El Worker ha indicat un error de recepció del fitxer.\n");
+        write_message(STDOUT_FILENO, "[ERROR] Worker has indicated a problem recieving.\n");
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }

@@ -69,9 +69,9 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
         close(pipe_fd[0]);
         dup2(pipe_fd[1], STDOUT_FILENO);
         close(pipe_fd[1]);
-        write_message(STDOUT_FILENO, "[ERROR] Could not exec md5sum for MD5 calculation.\n");
 
         execlp("md5sum", "md5sum", file_name, NULL);
+        perror("[ERROR] exec md5sum failed");
         _exit(1);
     }
 
@@ -87,7 +87,12 @@ int calcular_md5(const char *file_name, char *md5sum, uint32_t *file_size) {
     buffer[bytes_read] = '\0';
     close(pipe_fd[0]);
 
+    int status;
     waitpid(pid, NULL, 0); 
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        write_message(STDOUT_FILENO, "[ERROR] md5sum process exited with error\n");
+        return -1;
+    }
 
     strncpy(md5sum, buffer, 32);
     md5sum[32] = '\0';

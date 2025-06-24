@@ -704,11 +704,6 @@ void netejar_memoria_tasques(void *shared_mem, size_t mem_size, pthread_mutex_t 
  */
 TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, const char *file_name,
                                    pthread_mutex_t *mutex) {
-
-    pthread_mutex_lock(mutex);
-    volcar_memoria_tasques(shared_mem, current_mem_size);
-    pthread_mutex_unlock(mutex);
-
     pthread_mutex_lock(mutex);
 
     char *shared_mem_ptr = (char *)shared_mem + sizeof(int);
@@ -725,7 +720,7 @@ TaskMetadata *buscar_tasca_per_nom(void *shared_mem, size_t current_mem_size, co
     }
 
     pthread_mutex_unlock(mutex);
-    
+
     return found_metadata;
 }
 

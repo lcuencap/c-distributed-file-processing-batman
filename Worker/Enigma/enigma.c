@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <libgen.h>
 #include <pthread.h>
+#include <libgen.h>
 
 // Variables globals
 static ConfigWorker config;

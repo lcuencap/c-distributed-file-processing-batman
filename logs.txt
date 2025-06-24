@@ -223,3 +223,8 @@
 [2025-06-24 17:20:37] Fleck connected: Laura (Socket:9)
 [2025-06-24 17:29:23] Rejected frame from Worker (socket 6): invalid format or checksum.
 [2025-06-24 17:29:23] Rejected frame from Worker due to incorrect format or checksum.
+[2025-06-24 18:04:21] Worker ID 2 selected as new primary of type 2.
+[2025-06-24 18:04:23] No other worker available to reassign as primary.
+[2025-06-24 18:04:27] Fleck has requested disconnection.
+[2025-06-24 18:04:30] Fleck has requested disconnection.
+[2025-06-24 18:04:31] SIGINT received. Shutting down Gotham cleanly.

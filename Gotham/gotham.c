@@ -194,6 +194,34 @@ ConfigWorker* seleccionar_nou_principal(InstanceType tipus_worker) {
 }
 
 /**
+ * Elimina un Fleck del sistema segons el seu socket_fd.
+ * @param socket_fd El descriptor de socket del Fleck a eliminar.
+ */
+void eliminar_fleck_per_id(int id) {
+    pthread_mutex_lock(&fleck_mutex);
+    for (int i = 0; i < num_flecks; i++) {
+        if (flecks[i].fleck_id == id) {
+            // Alliberar memòria
+            free(flecks[i].base.ip);
+            free(flecks[i].username);
+            if (flecks[i].work_dir) free(flecks[i].work_dir);
+
+            // Moure l'últim a la posició eliminada
+            flecks[i] = flecks[num_flecks - 1];
+            num_flecks--;
+
+            // Realloc (opcional però recomanable)
+            ConfigFleck *tmp = realloc(flecks, num_flecks * sizeof(ConfigFleck));
+            if (tmp || num_flecks == 0) flecks = tmp;
+
+            break;
+        }
+    }
+    pthread_mutex_unlock(&fleck_mutex);
+}
+
+
+/**
  * elimina un worker de la llista de workers.
  * @param id ID del worker a eliminar.   
  * @return Retorna 1 si s'ha eliminat correctament, 0 si no s'ha trobat el worker.
@@ -777,6 +805,14 @@ void *listener_fleck(void *arg) {
                 write(STDOUT_FILENO, msg, strlen(msg));
             } else if (trama.type == 0x07) {
                 log_event("Fleck has requested disconnection.");
+                pthread_mutex_lock(&fleck_mutex);
+                for (int f = 0; f < num_flecks; f++) {
+                    if (flecks[f].base.socket_fd == client_fd) {
+                        eliminar_worker_per_id(flecks[f].fleck_id);
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&fleck_mutex);
                 close(client_fd);
                 poll_fds[i] = poll_fds[nfds - 1];
                 nfds--;

@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <libgen.h>
+#include <libgen.h>
 #include <pthread.h>
 
 
@@ -294,7 +295,7 @@ void *handle_task(void *arg) {
 
 
     // Recalcular la mida real del fitxer processat
-    int fd = open(*output_file, O_RDONLY);
+    int fd = open(output_file, O_RDONLY);
     if (fd < 0) {
         write_message(STDERR_FILENO, "[HARLEY] Error opening processed file.\n");
         netejar_connexio_per_error(client_socket, metadata, &shared_mem_mutex, &active_threads, &threads_mutex);

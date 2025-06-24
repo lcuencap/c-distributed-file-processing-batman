@@ -9,7 +9,7 @@
 #include <arpa/inet.h>
 #include <time.h>
 #include <pthread.h>
-
+#include <libgen.h>
 #include <stdio.h>
 #include "../Utils/file_utils.h"
 #include "../Utils/sys_params.h"
@@ -810,17 +810,6 @@ int rebre_fitxer_worker(int worker_fd, const char *output_file, const char *medi
     md5sum_expected[MD5SUM_LENGTH - 1] = '\0';
 
     uint32_t file_size_rebuda = strtoul(file_size_str, NULL, 10);
-    // Crear un nom únic per al fitxer distorsionat
-    char *base_name = basename((char *)output_file);
-    size_t output_len = strlen("distorted_") + 20 + strlen(base_name) + 1;
-    char *base_output = malloc(output_len);
-    if (!base_output) {
-        enviar_trama_desconnexio_worker(worker_fd);
-        return ERROR_OUTPUT_FILE;
-    }
-    snprintf(base_output, output_len, "distorted_%d_%s", getpid(), base_name);
-    output_file = base_output;
-
 
     // 2. Obrir fitxer de sortida
     int output_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -919,19 +908,15 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     struct timeval timeout;
 
     if (!worker_ip || worker_port <= 0 || !file_name || factor <= 0) {
-        write_message(STDOUT_FILENO, "Error: Paràmetres de distorsió no vàlids\n");
+        write_message(STDOUT_FILENO, "Error: Invalid distortion parameters\n");
         return -1;
     }
-    
-    write_message(STDOUT_FILENO, "Connectant amb el worker: ");
-    write_message(STDOUT_FILENO, worker_ip);
-    write_message(STDOUT_FILENO, "\n");
     
 
     int worker_fd = connectar_a_server(worker_ip, worker_port);
 
     if (worker_fd < 0) {
-        write_message(STDOUT_FILENO, "Error connectant amb el worker.\n");
+        write_message(STDOUT_FILENO, "Error connecting to the worker.\n");
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
@@ -943,7 +928,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     } else if (strcmp(media_type, "text") == 0) {
         enigma_fd = worker_fd;  // Assignar el descriptor de socket al worker de text
     } else {
-        write_message(STDOUT_FILENO, "Error: Tipus de media no vàlid. Ha de ser 'media' o 'text'.\n");
+        write_message(STDOUT_FILENO, "Error: Invalid media type. Must be 'media' or 'text'.\n");
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
@@ -953,7 +938,7 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     uint32_t file_size;
     char md5sum[33]; 
     if (calcular_md5(file_name, md5sum, &file_size) < 0) {
-        write_message(STDOUT_FILENO, "Error calculant MD5SUM.\n");
+        write_message(STDOUT_FILENO, "Error calculating MD5SUM.\n");
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;
     }
@@ -971,8 +956,15 @@ int gestionar_distorsio_worker(const char *media_type, const char *worker_ip, in
     setsockopt(worker_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
 
-    char output_file[256];
-    snprintf(output_file, sizeof(output_file), "distorted_%s", file_name);
+    // Generate output_file dynamically
+    size_t output_len = strlen("distorted_") + 20 + strlen(file_name) + 1;
+    char *output_file = malloc(output_len);
+    if (!output_file) {
+        enviar_trama_desconnexio_worker(worker_fd);
+        return -1;
+    }
+    snprintf(output_file, output_len, "distorted_%d_%s", getpid(), file_name);
+
     if (rebre_fitxer_worker(worker_fd, output_file, media_type, file_name, file_size, md5sum, factor) < 0) {
         enviar_trama_desconnexio_worker(worker_fd);
         return -1;

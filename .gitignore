@@ -1,0 +1,17 @@
+*.o
+*.exe
+*.tar
+*.zip
+*.pdf
+logs.txt
+Fleck/fleck
+Gotham/gotham
+Gotham/gotham_mini
+Worker/Enigma/enigma
+Worker/Harley/harley
+Worker/Enigma/riddler/*
+!Worker/Enigma/riddler/.gitkeep
+Worker/Harley/riddler/*
+!Worker/Harley/riddler/.gitkeep
+Fleck/Testing/*
+!Fleck/Testing/example.txt

@@ -3,6 +3,7 @@
 *.tar
 *.zip
 *.pdf
+!report.pdf
 logs.txt
 Fleck/fleck
 Gotham/gotham

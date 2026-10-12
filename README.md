@@ -25,7 +25,11 @@ make
 
 Start each process in a separate terminal, in the order shown. The included configuration uses loopback addresses and example ports. Place your own test files in `Fleck/Testing/`; the example text file is safe to use for a first run. The worker `riddler` directories hold generated output.
 
-This curated copy has not been compiled or run in the current environment. The original repository contains compiled binaries, logs, a submission report, and sample media; these are excluded here.
+This curated copy has not been compiled or run in the current environment. Compiled binaries, logs, and sample media are excluded.
+
+## Academic report
+
+The [original project report](report.pdf) covers design decisions, concurrency, testing, and known limitations. It reflects the course submission; this README describes the curated source currently in the repository.
 
 ## Code map
 

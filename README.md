@@ -1,6 +1,8 @@
 # Fleck/Gotham File Processing System
 
-Academic systems programming project in C. Fleck is a client that submits text or media files. Gotham accepts clients, routes each task to an appropriate worker, and tracks worker availability. Enigma handles text; Harley handles media. The components communicate over TCP sockets using a shared frame protocol.
+Academic systems programming project in C, developed as a university group project. Fleck is a client that submits text or media files. Gotham accepts clients, routes each task to an appropriate worker, and tracks worker availability. Enigma handles text; Harley handles media. The components communicate over TCP sockets using a shared frame protocol.
+
+The project was themed around the **Batman universe**, which is why the different components use names such as **Gotham, Harley and Enigma**. The theme was purely a naming and presentation choice; the project itself focused on systems programming, communication between processes and distributed task handling.
 
 ## Architecture
 
